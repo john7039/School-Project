@@ -1,0 +1,14 @@
+# 백엔드
+backend/.venv/
+__pycache__/
+*.db
+
+# 프론트
+frontend/node_modules/
+
+# ⭐ 비밀 (API 키!)
+.env
+*.key
+
+# 맥
+.DS_Store
