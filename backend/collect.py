@@ -7,21 +7,28 @@ from dotenv import load_dotenv
 load_dotenv()
 FRED_KEY = os.environ["FRED_API_KEY"]
 
+TICKERS = ["AAPL", "MSFT", "GOOGL", "TSLA"]
+INDICATORS = {"CPI": "CPIAUCSL", "금리": "FEDFUNDS", "실업률": "UNRATE"}
+
 conn = sqlite3.connect("econ.db")
 cur = conn.cursor()
 
 cur.execute("DELETE FROM prices")
 cur.execute("DELETE FROM indicators")
 
-data = yf.Ticker("AAPL").history(period="5d")
-for date, row in data.iterrows():
-    cur.execute("INSERT INTO prices (ticker, date, open, close) VALUES (?, ?, ?, ?)", ("AAPL", str(date.date()), row["Open"], row["Close"]))
+# 주가 (여러 종목)
+for ticker in TICKERS:
+    data = yf.Ticker(ticker).history(period="5d")
+    for date, row in data.iterrows():
+        cur.execute("INSERT INTO prices (ticker, date, open, close) VALUES (?, ?, ?, ?)", (ticker, str(date.date()), row["Open"], row["Close"]))
 
+# 지표 (여러 개)
 fred = Fred(api_key=FRED_KEY)
-cpi = fred.get_series("CPIAUCSL").tail()
-for date, value in cpi.items():
-    cur.execute("INSERT INTO indicators (name, date, value) VALUES (?, ?, ?)", ("CPI", str(date.date()), float(value)))
+for name, series_id in INDICATORS.items():
+    series = fred.get_series(series_id).tail()
+    for date, value in series.items():
+        cur.execute("INSERT INTO indicators (name, date, value) VALUES (?, ?, ?)", (name, str(date.date()), float(value)))
 
 conn.commit()
 conn.close()
-print("저장 완료 (기존 삭제 후 재수집)")
+print("저장 완료:", len(TICKERS), "종목 /", len(INDICATORS), "지표")
