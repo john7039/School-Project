@@ -73,3 +73,9 @@ def analysis():
         result.append({"indicator": name, "release_count": len(dates), "reactions": per_ticker})
     conn.close()
     return result
+@app.get("/api/news")
+def list_news():
+    conn = get_db()
+    rows = conn.execute("SELECT title, summary, source, published, sentiment, tickers, url FROM news ORDER BY published DESC LIMIT 30").fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
