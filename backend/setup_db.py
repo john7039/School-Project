@@ -1,27 +1,10 @@
 import sqlite3
-
 conn = sqlite3.connect("econ.db")
 cur = conn.cursor()
-
-cur.execute("""
-CREATE TABLE IF NOT EXISTS prices (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    ticker TEXT,
-    date TEXT,
-    open REAL,
-    close REAL
-)
-""")
-
-cur.execute("""
-CREATE TABLE IF NOT EXISTS indicators (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT,
-    date TEXT,
-    value REAL
-)
-""")
-
+cur.execute("DROP TABLE IF EXISTS prices")
+cur.execute("DROP TABLE IF EXISTS indicators")
+cur.execute("CREATE TABLE prices (id INTEGER PRIMARY KEY AUTOINCREMENT, ticker TEXT, date TEXT, open REAL, close REAL, UNIQUE(ticker, date))")
+cur.execute("CREATE TABLE indicators (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, date TEXT, value REAL, UNIQUE(name, date))")
 conn.commit()
 conn.close()
-print("prices, indicators 테이블 생성 완료")
+print("done")

@@ -13,22 +13,18 @@ INDICATORS = {"CPI": "CPIAUCSL", "금리": "FEDFUNDS", "실업률": "UNRATE"}
 conn = sqlite3.connect("econ.db")
 cur = conn.cursor()
 
-cur.execute("DELETE FROM prices")
-cur.execute("DELETE FROM indicators")
-
-# 주가 (여러 종목)
 for ticker in TICKERS:
-    data = yf.Ticker(ticker).history(period="5d")
+    data = yf.Ticker(ticker).history(period="2y")
     for date, row in data.iterrows():
-        cur.execute("INSERT INTO prices (ticker, date, open, close) VALUES (?, ?, ?, ?)", (ticker, str(date.date()), row["Open"], row["Close"]))
+        cur.execute("INSERT OR IGNORE INTO prices (ticker, date, open, close) VALUES (?, ?, ?, ?)", (ticker, str(date.date()), row["Open"], row["Close"]))
 
-# 지표 (여러 개)
 fred = Fred(api_key=FRED_KEY)
 for name, series_id in INDICATORS.items():
-    series = fred.get_series(series_id).tail()
+    series = fred.get_series(series_id, observation_start="2023-01-01")
     for date, value in series.items():
-        cur.execute("INSERT INTO indicators (name, date, value) VALUES (?, ?, ?)", (name, str(date.date()), float(value)))
+        if value == value:
+            cur.execute("INSERT OR IGNORE INTO indicators (name, date, value) VALUES (?, ?, ?)", (name, str(date.date()), float(value)))
 
 conn.commit()
 conn.close()
-print("저장 완료:", len(TICKERS), "종목 /", len(INDICATORS), "지표")
+print("수집 완료")
