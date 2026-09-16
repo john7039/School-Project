@@ -2,12 +2,27 @@ import { useState, useEffect } from 'react'
 
 const API = 'http://100.121.62.50:8000'
 
+const TICKER_INFO = {
+  AAPL: '애플 · 미국 기술주 (아이폰·맥). 금리에 민감.',
+  MSFT: '마이크로소프트 · 미국 기술주 (윈도우·클라우드).',
+  GOOGL: '알파벳(구글) · 미국 기술주 (검색·광고).',
+  TSLA: '테슬라 · 미국 전기차. 변동성이 큰 성장주.',
+}
+
+const INDICATOR_INFO = {
+  CPI: '소비자물가지수 · 물가(인플레이션). 높으면 금리 인상 우려 → 주가 부담.',
+  금리: '기준금리 · 돈 빌리는 비용. 오르면 주가에 보통 부담.',
+  실업률: '일자리 없는 비율 · 경기 상태. 너무 낮으면 금리 인상 우려.',
+}
+
 function groupBy(arr, key) {
   const m = {}
-  for (const item of arr) {
-    (m[item[key]] = m[item[key]] || []).push(item)
-  }
+  for (const item of arr) (m[item[key]] = m[item[key]] || []).push(item)
   return m
+}
+
+function Info({ text }) {
+  return <span className="info" title={text}>ⓘ</span>
 }
 
 function App() {
@@ -37,7 +52,7 @@ function App() {
           return (
             <section className="card" key={ticker}>
               <div className="card-head">
-                <span className="ticker">{ticker}</span>
+                <span className="ticker">{ticker}<Info text={TICKER_INFO[ticker] || ticker} /></span>
                 <span className="last">${last?.close.toFixed(2)}</span>
               </div>
               <table>
@@ -60,7 +75,7 @@ function App() {
           return (
             <section className="card" key={name}>
               <div className="card-head">
-                <span className="ticker">{name}</span>
+                <span className="ticker">{name}<Info text={INDICATOR_INFO[name] || name} /></span>
                 <span className="last">{last?.value}</span>
               </div>
               <table>
@@ -89,6 +104,8 @@ const CSS = `
   .card { background:#1a1e29; border:1px solid #262c3a; border-radius:12px; padding:16px; }
   .card-head { display:flex; justify-content:space-between; align-items:baseline; margin-bottom:10px; }
   .ticker { font-weight:700; font-size:1rem; }
+  .info { margin-left:5px; color:#6b7280; font-size:.75rem; cursor:help; border:1px solid #3a4152; border-radius:50%; padding:0 4px; }
+  .info:hover { color:#4ade80; border-color:#4ade80; }
   .last { color:#4ade80; font-weight:700; font-size:1.1rem; font-variant-numeric:tabular-nums; }
   table { width:100%; border-collapse:collapse; font-size:.82rem; }
   th { color:#8b93a1; font-weight:500; padding:5px 6px; border-bottom:1px solid #262c3a; text-align:left; }
