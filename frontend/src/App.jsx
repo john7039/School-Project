@@ -215,7 +215,10 @@ const CSS = `
   tr:last-child td { border-bottom:none; }
 
   .daylabel { font-size:.72rem; text-transform:uppercase; letter-spacing:.08em; color:#6b7280; font-weight:700; margin:20px 0 10px; }
-  .daylist { display:flex; flex-direction:column; gap:10px; }
+  .daylist { display:flex; flex-direction:column; gap:10px; max-height:440px; overflow-y:auto; padding-right:6px; }
+  .daylist::-webkit-scrollbar { width:8px; }
+  .daylist::-webkit-scrollbar-thumb { background:#2f3646; border-radius:4px; }
+  .daylist::-webkit-scrollbar-track { background:transparent; }
   .daycard { display:block; width:100%; text-align:left; font:inherit; color:inherit; cursor:pointer;
              background:#1a1e29; border:1px solid #262c3a; border-radius:14px; padding:18px; }
   .daycard:hover { border-color:#3a4358; }
