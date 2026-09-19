@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import sqlite3
+import json
 
 app = FastAPI()
 
@@ -73,9 +74,32 @@ def analysis():
         result.append({"indicator": name, "release_count": len(dates), "reactions": per_ticker})
     conn.close()
     return result
+
 @app.get("/api/news")
 def list_news():
     conn = get_db()
     rows = conn.execute("SELECT title, summary, source, published, sentiment, tickers, url FROM news ORDER BY published DESC LIMIT 30").fetchall()
     conn.close()
     return [dict(r) for r in rows]
+
+@app.get("/api/daily")
+def list_daily():
+    conn = get_db()
+    try:
+        rows = conn.execute(
+            "SELECT date, url, title, source, sentiment, tickers, summary_easy, glossary, pick_reason "
+            "FROM daily ORDER BY date DESC"
+        ).fetchall()
+    except sqlite3.OperationalError:
+        conn.close()
+        return []
+    conn.close()
+    out = []
+    for r in rows:
+        d = dict(r)
+        try:
+            d["glossary"] = json.loads(d["glossary"]) if d["glossary"] else []
+        except (ValueError, TypeError):
+            d["glossary"] = []
+        out.append(d)
+    return out

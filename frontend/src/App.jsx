@@ -14,6 +14,14 @@ const INDICATOR_INFO = {
   실업률: '일자리 없는 비율. 너무 낮으면 금리 인상 우려.',
 }
 
+const DOW = ['일', '월', '화', '수', '목', '금', '토']
+
+function dowOf(iso) {
+  const [y, m, d] = String(iso || '').split('-').map(Number)
+  if (!y || !m || !d) return ''
+  return DOW[new Date(y, m - 1, d).getDay()]
+}
+
 function groupBy(arr, key) {
   const m = {}
   for (const item of arr) (m[item[key]] = m[item[key]] || []).push(item)
@@ -43,19 +51,82 @@ function sentClass(s) {
   return ''
 }
 
+function NewsCard({ row, today, onOpen }) {
+  return (
+    <button className={`daycard${today ? ' today' : ''}`} onClick={() => onOpen(row, today)}>
+      <div className="date-row">
+        {today && <span className="badge-today">최신</span>}
+        <span>{row.date} ({dowOf(row.date)})</span>
+      </div>
+      <p className="daytitle">{row.title}</p>
+      <div className="daymeta">
+        <span className={`sent ${sentClass(row.sentiment)}`}>{row.sentiment}</span>
+        <span className="news-tickers">{row.tickers}</span>
+        <span className="read">읽기 →</span>
+      </div>
+    </button>
+  )
+}
+
+function NewsModal({ item, onClose }) {
+  useEffect(() => {
+    if (!item) return
+    const onKey = (e) => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [item, onClose])
+  if (!item) return null
+  const glossary = item.glossary || []
+  return (
+    <div className="modal-bg" onClick={onClose}>
+      <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <button className="modal-x" onClick={onClose} aria-label="닫기">×</button>
+        <div className="m-date">{item.date} ({dowOf(item.date)}){item.today ? ' · 최신 기사' : ''}</div>
+        <h2 className="m-title">{item.title}</h2>
+        <div className="m-source">출처 · {item.source}</div>
+        <a className="src-btn" href={item.url} target="_blank" rel="noreferrer">🔗 원문 보기</a>
+
+        <div className="m-sec">
+          <div className="m-sec-h">💡 오늘 이 기사를 고른 이유</div>
+          <div className="reason">{item.pick_reason}</div>
+        </div>
+        <div className="m-sec">
+          <div className="m-sec-h">📄 내용 풀이</div>
+          <p className="m-body">{item.summary_easy}</p>
+        </div>
+        {glossary.length > 0 && (
+          <div className="m-sec">
+            <div className="m-sec-h">📖 용어 설명</div>
+            <ul className="glossary">
+              {glossary.map((g, i) => (
+                <li key={i}><b>{g.term}</b> {g.desc}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 function App() {
   const [prices, setPrices] = useState([])
   const [indicators, setIndicators] = useState([])
-  const [news, setNews] = useState([])
+  const [daily, setDaily] = useState([])
+  const [selected, setSelected] = useState(null)
 
   useEffect(() => {
     fetch(`${API}/api/prices`).then(r => r.json()).then(setPrices)
     fetch(`${API}/api/indicators`).then(r => r.json()).then(setIndicators)
-    fetch(`${API}/api/news`).then(r => r.json()).then(setNews)
+    fetch(`${API}/api/daily`).then(r => r.json()).then(setDaily)
   }, [])
 
   const byTicker = groupBy(prices, 'ticker')
   const byIndicator = groupBy(indicators, 'name')
+  const today = daily[0]
+  const past = daily.slice(1)
+
+  const openModal = (row, isToday) => setSelected({ ...row, today: isToday })
 
   return (
     <div className="wrap">
@@ -99,18 +170,26 @@ function App() {
         ))}
       </div>
 
-      <h2 className="section">경제 뉴스</h2>
-      <div className="news-list">
-        {news.map((n, idx) => (
-          <a className="news" href={n.url} target="_blank" rel="noreferrer" key={idx}>
-            <div className="news-top">
-              <span className={`sent ${sentClass(n.sentiment)}`}>{n.sentiment}</span>
-              <span className="news-tickers">{n.tickers}</span>
-            </div>
-            <div className="news-title">{n.title}</div>
-          </a>
-        ))}
-      </div>
+      <h2 className="section">📰 오늘의 경제 기사</h2>
+      <p className="hint">매일 한 건씩, AI가 초보자용으로 풀이·용어 설명을 붙입니다. 카드를 누르면 열립니다.</p>
+
+      {today && (
+        <>
+          <div className="daylabel">최신 기사</div>
+          <NewsCard row={today} today onOpen={openModal} />
+        </>
+      )}
+      {past.length > 0 && (
+        <>
+          <div className="daylabel">지난 기록</div>
+          <div className="daylist">
+            {past.map(row => <NewsCard key={row.date} row={row} onOpen={openModal} />)}
+          </div>
+        </>
+      )}
+      {daily.length === 0 && <p className="hint">아직 큐레이션된 기사가 없습니다.</p>}
+
+      <NewsModal item={selected} onClose={() => setSelected(null)} />
     </div>
   )
 }
@@ -121,6 +200,7 @@ const CSS = `
   header h1 { margin:0 0 4px; font-size:1.6rem; }
   header p { margin:0 0 20px; color:#8b93a1; font-size:.9rem; }
   .section { font-size:1.1rem; color:#cbd5e1; margin:24px 0 12px; border-bottom:1px solid #262c3a; padding-bottom:6px; }
+  .hint { color:#6b7280; font-size:.8rem; margin:-6px 0 14px; }
   .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:14px; }
   .card { background:#1a1e29; border:1px solid #262c3a; border-radius:12px; padding:16px; }
   .card-head { display:flex; justify-content:space-between; align-items:baseline; margin-bottom:10px; }
@@ -133,15 +213,42 @@ const CSS = `
   td { padding:5px 6px; border-bottom:1px solid #1f2430; }
   .num { text-align:right; font-variant-numeric:tabular-nums; }
   tr:last-child td { border-bottom:none; }
-  .news-list { display:flex; flex-direction:column; gap:8px; }
-  .news { background:#1a1e29; border:1px solid #262c3a; border-radius:10px; padding:12px 14px; text-decoration:none; color:inherit; }
-  .news:hover { border-color:#4ade80; }
-  .news-top { display:flex; gap:10px; margin-bottom:5px; font-size:.72rem; }
-  .sent { padding:1px 7px; border-radius:20px; background:#262c3a; color:#8b93a1; }
+
+  .daylabel { font-size:.72rem; text-transform:uppercase; letter-spacing:.08em; color:#6b7280; font-weight:700; margin:20px 0 10px; }
+  .daylist { display:flex; flex-direction:column; gap:10px; }
+  .daycard { display:block; width:100%; text-align:left; font:inherit; color:inherit; cursor:pointer;
+             background:#1a1e29; border:1px solid #262c3a; border-radius:14px; padding:18px; }
+  .daycard:hover { border-color:#3a4358; }
+  .daycard:focus-visible { outline:2px solid #4ade80; outline-offset:2px; }
+  .daycard.today { border-color:#1c4a2b; background:linear-gradient(180deg,#16241b 0%,#1a1e29 55%); padding:22px; }
+  .daycard.today .date-row { color:#4ade80; }
+  .daycard.today .daytitle { font-size:1.15rem; }
+  .date-row { display:flex; align-items:center; gap:8px; font-size:.8rem; color:#8b93a1; margin-bottom:10px; font-variant-numeric:tabular-nums; }
+  .badge-today { background:#4ade80; color:#06210f; font-weight:800; font-size:.68rem; padding:2px 8px; border-radius:6px; }
+  .daytitle { font-size:1rem; font-weight:650; line-height:1.45; margin:0 0 12px; }
+  .daymeta { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+  .sent { padding:2px 9px; border-radius:20px; background:#262c3a; color:#9aa4b2; font-size:.7rem; }
   .sent.pos { background:#12351f; color:#4ade80; }
   .sent.neg { background:#3a1518; color:#f87171; }
-  .news-tickers { color:#6b7280; }
-  .news-title { font-size:.9rem; line-height:1.4; }
+  .news-tickers { color:#6b7280; font-size:.72rem; }
+  .read { margin-left:auto; font-size:.78rem; color:#4ade80; }
+
+  .modal-bg { position:fixed; inset:0; background:rgba(3,5,10,.72); display:flex; align-items:center; justify-content:center; padding:20px; z-index:50; }
+  .modal { background:#1a1e29; border:1px solid #2f3646; border-radius:16px; padding:26px; max-width:560px; width:100%; max-height:86vh; overflow-y:auto; position:relative; }
+  .modal-x { position:absolute; top:14px; right:16px; background:none; border:none; color:#8b93a1; font-size:1.5rem; cursor:pointer; line-height:1; }
+  .modal-x:hover { color:#e6e8eb; }
+  .m-date { font-size:.78rem; color:#4ade80; font-variant-numeric:tabular-nums; margin-bottom:8px; }
+  .m-title { font-size:1.15rem; font-weight:700; line-height:1.4; margin:0 30px 6px 0; }
+  .m-source { font-size:.74rem; color:#6b7280; margin-bottom:16px; }
+  .src-btn { display:inline-flex; align-items:center; gap:7px; background:#212734; color:#e6e8eb; text-decoration:none; padding:9px 15px; border-radius:9px; font-size:.82rem; font-weight:600; border:1px solid #262c3a; }
+  .src-btn:hover { border-color:#4ade80; color:#4ade80; }
+  .m-sec { margin-top:22px; }
+  .m-sec-h { font-size:.8rem; font-weight:700; color:#4ade80; margin:0 0 9px; }
+  .reason { background:#12351f; border:1px solid #1c4a2b; border-radius:10px; padding:12px 14px; font-size:.86rem; line-height:1.6; color:#d5f0e0; }
+  .m-body { font-size:.9rem; line-height:1.75; color:#d3d8e0; margin:0; }
+  .glossary { list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:10px; }
+  .glossary li { background:#212734; border:1px solid #262c3a; border-radius:10px; padding:11px 13px; font-size:.85rem; line-height:1.6; color:#c4cad4; }
+  .glossary b { color:#e6e8eb; display:block; margin-bottom:2px; }
 `
 
 export default App
