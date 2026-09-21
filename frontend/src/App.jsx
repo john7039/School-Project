@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 
-const API = 'http://100.121.62.50:8000'
+const API = ''  // 같은 출처 (nginx 가 /api 를 백엔드로 프록시)
 
 const TICKER_INFO = {
   AAPL: '애플 · 미국 기술주 (아이폰·맥). 금리에 민감.',
