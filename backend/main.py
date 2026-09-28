@@ -103,3 +103,27 @@ def list_daily():
             d["glossary"] = []
         out.append(d)
     return out
+
+@app.get("/api/company/{ticker}")
+def company(ticker: str):
+    conn = get_db()
+    try:
+        rows = conn.execute(
+            "SELECT ticker, date, close, change_pct, volume, news_json, ai_summary "
+            "FROM company_daily WHERE ticker=? ORDER BY date DESC",
+            (ticker.upper(),)
+        ).fetchall()
+    except sqlite3.OperationalError:
+        conn.close()
+        return []
+    conn.close()
+    out = []
+    for r in rows:
+        d = dict(r)
+        raw = d.pop("news_json", None)
+        try:
+            d["news"] = json.loads(raw) if raw else []
+        except (ValueError, TypeError):
+            d["news"] = []
+        out.append(d)
+    return out
