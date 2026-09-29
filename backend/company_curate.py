@@ -1,19 +1,12 @@
-import os
-import json
 import sqlite3
-import time
-from google import genai
-from google.genai import types
-from dotenv import load_dotenv
-
-load_dotenv()
-client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
-MODEL = "gemini-3.6-flash"
+from llm import generate_json
 
 TICKERS = ["AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "TSLA", "META"]
 NAMES = {"AAPL": "애플", "MSFT": "마이크로소프트", "NVDA": "엔비디아",
          "AMZN": "아마존", "GOOGL": "알파벳(구글)", "TSLA": "테슬라", "META": "메타"}
 DAYS = 7  # 종목별 최근 며칠치 브리핑
+
+import json
 
 conn = sqlite3.connect("econ.db")
 conn.row_factory = sqlite3.Row
@@ -31,27 +24,11 @@ cur.execute("""CREATE TABLE IF NOT EXISTS company_daily (
 )""")
 conn.commit()
 
-
-def generate(prompt, tries=3):
-    for attempt in range(tries):
-        try:
-            return client.models.generate_content(
-                model=MODEL, contents=prompt,
-                config=types.GenerateContentConfig(response_mime_type="application/json"))
-        except Exception as e:
-            if attempt < tries - 1:
-                print(f"  재시도 {attempt + 1}/{tries} ({e.__class__.__name__}) ...")
-                time.sleep(8)
-            else:
-                raise
-
-
 for t in TICKERS:
     rows = cur.execute(
         "SELECT date, close, volume FROM prices WHERE ticker=? ORDER BY date DESC LIMIT ?",
         (t, DAYS + 1)).fetchall()
 
-    # 최신 DAYS 일 (전일 대비 등락률 계산 위해 한 칸 더 조회)
     for i in range(len(rows) - 1):
         r = rows[i]
         prev = rows[i + 1]
@@ -85,9 +62,8 @@ for t in TICKERS:
 아래 JSON 형식으로만 한국어로 답하라:
 {{"ai_summary": "<초보자용 설명>"}}"""
 
-        time.sleep(4)  # Gemini 무료 티어 rate limit(분당 15회) 회피용 간격
         try:
-            data = json.loads(generate(prompt).text)
+            data = generate_json(prompt)
             summary = data["ai_summary"]
         except Exception as e:
             print(f"{t} {date}: 실패 ({e.__class__.__name__}) — 다음 실행에서 재시도")
