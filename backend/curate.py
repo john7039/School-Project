@@ -8,8 +8,13 @@ cur = conn.cursor()
 
 cur.execute("""CREATE TABLE IF NOT EXISTS daily (
   date TEXT PRIMARY KEY, url TEXT, title TEXT, source TEXT,
-  sentiment TEXT, tickers TEXT, summary_easy TEXT, glossary TEXT, pick_reason TEXT
+  sentiment TEXT, tickers TEXT, brief TEXT, summary_easy TEXT, glossary TEXT, pick_reason TEXT
 )""")
+# 기존 테이블에 brief 컬럼 없으면 추가 (1회 마이그레이션)
+try:
+    cur.execute("ALTER TABLE daily ADD COLUMN brief TEXT")
+except sqlite3.OperationalError:
+    pass
 conn.commit()
 
 dates = [r[0] for r in cur.execute(
@@ -32,12 +37,18 @@ for ymd in dates:
 기준: (1) 이해하기 쉬움 (2) 경제 기본 개념을 배울 수 있음 (3) 내용이 명확함 (4) 종목/지표와 연결되면 가점.
 피할 것: 지나친 전문 분석, 단순 시세 나열, 광고성 기사.
 
-후보:
-{cand}
-
 아래 JSON 형식으로만 한국어로 답하라:
-{{"chosen_index": <고른 기사 번호(정수)>, "pick_reason": "<초보자에게 이 기사를 고른 이유>", "summary_easy": "<초보자가 이해하도록 기사 내용을 풀어쓴 설명 3-4문장>", "glossary": [{{"term": "<용어>", "desc": "<초보자용 설명>"}}]}}
-glossary 는 기사에 나오는 어려운 경제 용어 2-4개."""
+{{
+  "chosen_index": <고른 기사 번호(정수)>,
+  "pick_reason": "<초보자에게 이 기사를 고른 이유 1-2문장>",
+  "brief": "<기사가 무슨 내용인지 1~2문장으로 간단히 요약>",
+  "summary_easy": "<이것은 '요약'이 아니라 '설명'이다. 경제를 전혀 모르는 초보자도 이해하도록 아주 쉽고 자세하게 풀어써라. (1) 무슨 일이 일어났는지, (2) 여기 나오는 핵심 개념이 무엇인지 — 어려운 용어는 쉬운 말이나 일상 비유로 바로 풀어서, (3) 그래서 이게 왜 중요하고 어떤 의미인지를 단계적으로 설명. 쉬운 일상 언어로 5~7문장, 중학생도 이해할 수준으로.>",
+  "glossary": [{{"term": "<용어>", "desc": "<초보자용 설명>"}}]
+}}
+glossary 는 기사에 나오는 어려운 경제 용어 2-4개.
+
+후보:
+{cand}"""
     try:
         data = generate_json(prompt)
     except Exception as e:
@@ -48,10 +59,10 @@ glossary 는 기사에 나오는 어려운 경제 용어 2-4개."""
         idx = 0
     pick = rows[idx]
     cur.execute(
-        "INSERT INTO daily (date, url, title, source, sentiment, tickers, summary_easy, glossary, pick_reason) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO daily (date, url, title, source, sentiment, tickers, brief, summary_easy, glossary, pick_reason) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (iso, pick["url"], pick["title"], pick["source"], pick["sentiment"], pick["tickers"],
-         data["summary_easy"], json.dumps(data["glossary"], ensure_ascii=False), data["pick_reason"]))
+         data.get("brief", ""), data["summary_easy"], json.dumps(data["glossary"], ensure_ascii=False), data["pick_reason"]))
     conn.commit()
     print(f"{iso}: [{idx}] {pick['title'][:50]}")
 

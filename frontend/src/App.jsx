@@ -111,7 +111,9 @@ function ArticlesTab() {
         <a className="src-btn" href={sel.url} target="_blank" rel="noreferrer">🔗 원문 보기</a>
         <div className="sec-h">💡 이 기사를 고른 이유</div>
         <div className="ai">{sel.pick_reason}</div>
-        <div className="sec-h">📄 내용 풀이</div>
+        {sel.brief && <><div className="sec-h">📄 요약</div>
+        <p className="m-body">{sel.brief}</p></>}
+        <div className="sec-h">💡 쉬운 설명</div>
         <p className="m-body">{sel.summary_easy}</p>
         {(sel.glossary || []).length > 0 && <><div className="sec-h">📖 용어 설명</div>
           <ul className="glossary">{sel.glossary.map((g, i) => <li key={i}><b>{g.term}</b>{g.desc}</li>)}</ul></>}

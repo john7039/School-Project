@@ -87,7 +87,7 @@ def list_daily():
     conn = get_db()
     try:
         rows = conn.execute(
-            "SELECT date, url, title, source, sentiment, tickers, summary_easy, glossary, pick_reason "
+            "SELECT date, url, title, source, sentiment, tickers, brief, summary_easy, glossary, pick_reason "
             "FROM daily ORDER BY date DESC"
         ).fetchall()
     except sqlite3.OperationalError:
