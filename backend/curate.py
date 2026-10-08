@@ -40,6 +40,7 @@ for ymd in dates:
 아래 JSON 형식으로만 한국어로 답하라:
 {{
   "chosen_index": <고른 기사 번호(정수)>,
+  "sentiment": "<고른 기사가 시장·경제에 주는 영향: 반드시 '긍정' '부정' '중립' 중 하나만>",
   "pick_reason": "<초보자에게 이 기사를 고른 이유 1-2문장>",
   "brief": "<기사가 무슨 내용인지 1~2문장으로 간단히 요약>",
   "summary_easy": "<이것은 '요약'이 아니라 '설명'이다. 경제를 전혀 모르는 초보자도 이해하도록 아주 쉽고 자세하게 풀어써라. (1) 무슨 일이 일어났는지, (2) 여기 나오는 핵심 개념이 무엇인지 — 어려운 용어는 쉬운 말이나 일상 비유로 바로 풀어서, (3) 그래서 이게 왜 중요하고 어떤 의미인지를 단계적으로 설명. 쉬운 일상 언어로 5~7문장, 중학생도 이해할 수준으로.>",
@@ -58,10 +59,13 @@ glossary 는 기사에 나오는 어려운 경제 용어 2-4개.
     if idx < 0 or idx >= len(rows):
         idx = 0
     pick = rows[idx]
+    sent = data.get("sentiment", "").strip()
+    if sent not in ("긍정", "부정", "중립"):
+        sent = "중립"
     cur.execute(
         "INSERT INTO daily (date, url, title, source, sentiment, tickers, brief, summary_easy, glossary, pick_reason) "
         "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        (iso, pick["url"], pick["title"], pick["source"], pick["sentiment"], pick["tickers"],
+        (iso, pick["url"], pick["title"], pick["source"], sent, pick["tickers"],
          data.get("brief", ""), data["summary_easy"], json.dumps(data["glossary"], ensure_ascii=False), data["pick_reason"]))
     conn.commit()
     print(f"{iso}: [{idx}] {pick['title'][:50]}")

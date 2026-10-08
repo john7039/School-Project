@@ -1,20 +1,30 @@
+import os
 import sqlite3
 import re
+import json
+import datetime
 import urllib.request
 import urllib.parse
 import xml.etree.ElementTree as ET
 from email.utils import parsedate_to_datetime
+from dotenv import load_dotenv
 
-# 무료·키없음 RSS. 1) 야후 파이낸스 종목별(회사 뉴스) + 2) 구글뉴스 경제 검색(거시 뉴스)
+load_dotenv()
+FINNHUB_KEY = os.environ.get("FINNHUB_KEY", "")
+
 TICKERS = ["AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "TSLA", "META"]
-YAHOO = "https://feeds.finance.yahoo.com/rss/2.0/headline?s={t}&region=US&lang=en-US"
+COMPANY_LIMIT = 25   # 종목당 최근 N건
+GENERAL_LIMIT = 30   # 일반 경제 뉴스 N건
 
-# 거시 경제 뉴스(영어) — 초보자 학습용 기사 풀 넓히기
-GOOGLE_QUERIES = [
-    "US economy", "Federal Reserve interest rates", "inflation CPI", "stock market",
-]
-GOOGLE = "https://news.google.com/rss/search?q={q}&hl=en-US&gl=US&ceid=US:en"
-GOOGLE_LIMIT = 12  # 피드당 최근 N건만
+
+def fetch_json(url):
+    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+    return json.loads(urllib.request.urlopen(req, timeout=25).read())
+
+
+def fetch_text(url):
+    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+    return urllib.request.urlopen(req, timeout=20).read().decode("utf-8", "ignore")
 
 
 def strip_html(s):
@@ -22,69 +32,93 @@ def strip_html(s):
     return re.sub(r"\s+", " ", s).strip()
 
 
-def fetch(url):
-    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-    return urllib.request.urlopen(req, timeout=20).read().decode("utf-8", "ignore")
+def unix_to_ymd(ts):
+    return datetime.datetime.fromtimestamp(ts, datetime.timezone.utc).strftime("%Y%m%dT%H%M%S")
 
 
-def save(cur, title, desc, src, pub, tickers, link):
-    if not title or not link:
-        return 0
-    try:
-        published = parsedate_to_datetime(pub).strftime("%Y%m%dT%H%M%S")
-    except Exception:
+def save(cur, title, summary, source, published, tickers, url):
+    if not title or not url:
         return 0
     cur.execute(
         "INSERT OR IGNORE INTO news (title, summary, source, published, sentiment, tickers, url) "
         "VALUES (?, ?, ?, ?, ?, ?, ?)",
-        (title, desc, src, published, "", tickers, link))
+        (title.strip(), strip_html(summary)[:500], (source or "").strip(), published, "", tickers, url.strip()))
     return cur.rowcount
+
+
+# ---- 1순위: Finnhub ----
+def collect_finnhub(cur):
+    total = 0
+    today = datetime.date.today().isoformat()
+    frm = (datetime.date.today() - datetime.timedelta(days=4)).isoformat()
+    # 종목별 뉴스
+    for t in TICKERS:
+        arr = fetch_json(f"https://finnhub.io/api/v1/company-news?symbol={t}&from={frm}&to={today}&token={FINNHUB_KEY}")
+        arr = sorted(arr, key=lambda a: a.get("datetime", 0), reverse=True)[:COMPANY_LIMIT]
+        for a in arr:
+            try:
+                pub = unix_to_ymd(a["datetime"])
+            except Exception:
+                continue
+            total += save(cur, a.get("headline", ""), a.get("summary", ""), a.get("source", "Finnhub"), pub, t, a.get("url", ""))
+    # 일반 경제 뉴스
+    arr = fetch_json(f"https://finnhub.io/api/v1/news?category=general&token={FINNHUB_KEY}")
+    arr = sorted(arr, key=lambda a: a.get("datetime", 0), reverse=True)[:GENERAL_LIMIT]
+    for a in arr:
+        try:
+            pub = unix_to_ymd(a["datetime"])
+        except Exception:
+            continue
+        total += save(cur, a.get("headline", ""), a.get("summary", ""), a.get("source", "Finnhub"), pub, "경제", a.get("url", ""))
+    return total
+
+
+# ---- fallback: RSS (야후 종목별 + 구글뉴스 경제) ----
+def collect_rss(cur):
+    total = 0
+    for t in TICKERS:
+        try:
+            root = ET.fromstring(fetch_text(f"https://feeds.finance.yahoo.com/rss/2.0/headline?s={t}&region=US&lang=en-US"))
+        except Exception:
+            continue
+        for item in root.iter("item"):
+            try:
+                pub = parsedate_to_datetime(item.findtext("pubDate") or "").strftime("%Y%m%dT%H%M%S")
+            except Exception:
+                continue
+            total += save(cur, item.findtext("title") or "", item.findtext("description") or "",
+                          item.findtext("source") or "Yahoo Finance", pub, t, item.findtext("link") or "")
+    for q in ["US economy", "Federal Reserve interest rates", "inflation CPI", "stock market"]:
+        try:
+            root = ET.fromstring(fetch_text(f"https://news.google.com/rss/search?q={urllib.parse.quote(q)}&hl=en-US&gl=US&ceid=US:en"))
+        except Exception:
+            continue
+        for item in list(root.iter("item"))[:12]:
+            title = (item.findtext("title") or "").strip()
+            src = (item.findtext("source") or "Google News").strip()
+            if src and title.endswith(" - " + src):
+                title = title[: -(len(src) + 3)].strip()
+            if title.lower() == q.lower() or len(title) < 20:
+                continue
+            try:
+                pub = parsedate_to_datetime(item.findtext("pubDate") or "").strftime("%Y%m%dT%H%M%S")
+            except Exception:
+                continue
+            total += save(cur, title, item.findtext("description") or "", src, pub, "경제", item.findtext("link") or "")
+    return total
 
 
 conn = sqlite3.connect("econ.db")
 cur = conn.cursor()
-total = 0
-
-# 1) 야후 종목별 (회사 뉴스 → 종목별 탭 관련 뉴스에도 쓰임)
-for t in TICKERS:
-    try:
-        root = ET.fromstring(fetch(YAHOO.format(t=t)))
-    except Exception as e:
-        print(f"야후 {t} 실패: {e.__class__.__name__} (건너뜀)")
-        continue
-    for item in root.iter("item"):
-        total += save(cur,
-                      (item.findtext("title") or "").strip(),
-                      strip_html(item.findtext("description") or ""),
-                      (item.findtext("source") or "Yahoo Finance").strip(),
-                      item.findtext("pubDate") or "",
-                      t,
-                      (item.findtext("link") or "").strip())
-
-# 2) 구글뉴스 경제 검색 (거시 뉴스 → tickers="경제"로 태깅, 종목 필터엔 안 걸림)
-for q in GOOGLE_QUERIES:
-    try:
-        root = ET.fromstring(fetch(GOOGLE.format(q=urllib.parse.quote(q))))
-    except Exception as e:
-        print(f"구글 '{q}' 실패: {e.__class__.__name__} (건너뜀)")
-        continue
-    qlow = {x.lower() for x in GOOGLE_QUERIES}
-    for item in list(root.iter("item"))[:GOOGLE_LIMIT]:
-        title = (item.findtext("title") or "").strip()
-        src = (item.findtext("source") or "Google News").strip()
-        # 구글뉴스 제목은 "헤드라인 - 출처" 형태 → 출처 꼬리 제거
-        if src and title.endswith(" - " + src):
-            title = title[: -(len(src) + 3)].strip()
-        # 보일러플레이트(검색어 메아리)·너무 짧은 제목 제외
-        if title.lower() in qlow or len(title) < 20:
-            continue
-        total += save(cur, title,
-                      strip_html(item.findtext("description") or ""),
-                      src,
-                      item.findtext("pubDate") or "",
-                      "경제",
-                      (item.findtext("link") or "").strip())
-
+try:
+    if not FINNHUB_KEY:
+        raise RuntimeError("FINNHUB_KEY 없음")
+    total = collect_finnhub(cur)
+    src = "Finnhub"
+except Exception as e:
+    print(f"Finnhub 실패({e.__class__.__name__}) → RSS fallback")
+    total = collect_rss(cur)
+    src = "RSS"
 conn.commit()
 conn.close()
-print(f"뉴스 수집 완료 (신규 {total}건)")
+print(f"뉴스 수집 완료 ({src}, 신규 {total}건)")

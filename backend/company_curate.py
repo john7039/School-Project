@@ -46,8 +46,9 @@ for t in TICKERS:
         news = cur.execute(
             "SELECT title, sentiment FROM news WHERE tickers LIKE ? AND substr(published,1,8)=? LIMIT 5",
             (f"%{t}%", ymd)).fetchall()
-        news_list = [{"title": n["title"], "sentiment": n["sentiment"]} for n in news]
-        news_txt = "; ".join(n["title"] for n in news) or "관련 뉴스 없음"
+        news_titles = [n["title"] for n in news]
+        news_txt = "; ".join(news_titles) or "관련 뉴스 없음"
+        news_numbered = "\n".join(f"  [{j}] {ti}" for j, ti in enumerate(news_titles)) or "  (없음)"
 
         flow = ("상승 + 거래 활발 → 매수세" if change > 0.5
                 else "하락 + 거래 → 매도세" if change < -0.5
@@ -55,12 +56,15 @@ for t in TICKERS:
 
         prompt = f"""{NAMES[t]}({t})의 {date} 주식 상황이다.
 종가 {close}, 전일 대비 {change}%, 거래량 {volume}. (추정 흐름: {flow})
-관련 뉴스: {news_txt}
+관련 뉴스(번호순):
+{news_numbered}
 
 경제 초보자에게 "오늘 이 회사가 어땠는지"를 2~3문장으로 쉽게 설명하라.
 매수세/매도세는 거래량과 등락으로 추정해 표현하고, 뉴스가 있으면 왜 그렇게 움직였는지 연결하라.
+또한 위 뉴스 각각이 이 회사에 주는 영향을 '긍정'/'부정'/'중립' 중 하나로 분류하라.
 아래 JSON 형식으로만 한국어로 답하라:
-{{"ai_summary": "<초보자용 설명>"}}"""
+{{"ai_summary": "<초보자용 설명>",
+  "news_sentiments": [<뉴스 번호순으로 '긍정'/'부정'/'중립' 값, 뉴스 개수만큼>]}}"""
 
         try:
             data = generate_json(prompt)
@@ -68,6 +72,15 @@ for t in TICKERS:
         except Exception as e:
             print(f"{t} {date}: 실패 ({e.__class__.__name__}) — 다음 실행에서 재시도")
             continue
+
+        sents = data.get("news_sentiments", []) or []
+        news_list = []
+        for j, ti in enumerate(news_titles):
+            s = (sents[j] if j < len(sents) else "")
+            s = s.strip() if isinstance(s, str) else ""
+            if s not in ("긍정", "부정", "중립"):
+                s = "중립"
+            news_list.append({"title": ti, "sentiment": s})
 
         cur.execute(
             "INSERT OR IGNORE INTO company_daily (ticker, date, close, change_pct, volume, news_json, ai_summary) "
