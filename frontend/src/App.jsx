@@ -83,6 +83,46 @@ function Modal({ children, onClose }) {
   )
 }
 
+// 무의존 SVG 라인차트 (숫자 + 그래프). data: 숫자 배열(과거→최신)
+function Chart({ data, dates, color = '#4ade80', mini = false, fmt = (v) => v, onPoint }) {
+  if (!data || data.length < 2) return mini ? null : <div className="chart-empty">그래프를 그릴 데이터가 부족합니다</div>
+  const W = mini ? 200 : 600
+  const H = mini ? 46 : 150
+  const pad = mini ? { x: 3, t: 5, b: 5 } : { x: 10, t: 16, b: 24 }
+  const min = Math.min(...data), max = Math.max(...data), span = (max - min) || 1
+  const n = data.length
+  const px = (i) => pad.x + (i / (n - 1)) * (W - pad.x * 2)
+  const py = (v) => pad.t + (1 - (v - min) / span) * (H - pad.t - pad.b)
+  const line = data.map((v, i) => `${px(i).toFixed(1)},${py(v).toFixed(1)}`).join(' ')
+  const area = `${px(0).toFixed(1)},${(H - pad.b).toFixed(1)} ${line} ${px(n - 1).toFixed(1)},${(H - pad.b).toFixed(1)}`
+  const last = data[n - 1]
+  return (
+    <svg className={`chart${mini ? ' mini' : ''}`} viewBox={`0 0 ${W} ${H}`} role="img" aria-label="추이 그래프">
+      <polygon points={area} fill={color} opacity="0.1" />
+      <polyline points={line} fill="none" stroke={color} strokeWidth="2" vectorEffect="non-scaling-stroke" strokeLinejoin="round" strokeLinecap="round" />
+      {mini
+        ? <circle cx={px(n - 1)} cy={py(last)} r={3} fill={color} />
+        : data.map((v, i) => (
+          <g key={i} className={onPoint ? 'cpt' : undefined} onClick={onPoint ? () => onPoint(i) : undefined}>
+            {onPoint && <circle cx={px(i)} cy={py(v)} r={13} fill="transparent" />}
+            <circle cx={px(i)} cy={py(v)} r={i === n - 1 ? 5 : 3.5} fill={color} stroke="#161a24" strokeWidth="1.5">
+              {dates && dates.length === n && <title>{dates[i]} · {fmt(v)}{onPoint ? ' (클릭하면 상세)' : ''}</title>}
+            </circle>
+          </g>
+        ))
+      }
+      {!mini && <>
+        <text x={pad.x} y={15} className="clbl" fill={color}>▲ {fmt(max)}</text>
+        <text x={pad.x} y={31} className="clbl cmin">▼ {fmt(min)}</text>
+        {dates && dates.length === n && <>
+          <text x={pad.x} y={H - 7} className="clbl cmin">{(dates[0] || '').slice(5)}</text>
+          <text x={W - pad.x} y={H - 7} className="clbl cmin" textAnchor="end">{(dates[n - 1] || '').slice(5)}</text>
+        </>}
+      </>}
+    </svg>
+  )
+}
+
 // ===== 탭 1: AI 추천 기사 =====
 function ArticlesTab() {
   const [daily, setDaily] = useState([])
@@ -147,6 +187,17 @@ function StocksTab() {
         <span className="coname">{cur} · {co}</span>
         {first && <span className="coprice">${first.close?.toFixed(2)} {chgHtml(first.change_pct)}</span>}
       </div>
+      {days.length >= 2 && (() => {
+        const s = [...days].reverse()
+        const closes = s.map(d => d.close)
+        const rising = closes[closes.length - 1] >= closes[0]
+        return (
+          <div className="chartbox">
+            <p className="chartcap">최근 {s.length}일 종가 추이 · 점을 누르면 그날 상세</p>
+            <Chart data={closes} dates={s.map(d => d.date)} color={rising ? '#4ade80' : '#f87171'} fmt={v => '$' + v.toFixed(0)} onPoint={(i) => setSel(s[i])} />
+          </div>
+        )
+      })()}
       <div className="label">일자별 기록 (장 마감 후 종합)</div>
       <div className="scroll">
         {days.map((x, i) => (
@@ -200,6 +251,7 @@ function MarketTab() {
             <div className="k">{name}<Info text={INDICATOR_INFO[name] || name} /></div>
             <div className="v">{rows[0]?.value}</div>
             <div className="d">{rows[0]?.date}</div>
+            <Chart data={[...rows].reverse().map(r => r.value)} mini color="#60a5fa" />
           </div>
         ))}
       </div>
@@ -208,11 +260,14 @@ function MarketTab() {
         {COMPANIES.map(c => {
           const rows = byTicker[c.t]
           if (!rows) return null
+          const asc = [...rows].reverse().map(r => r.close)
+          const rising = asc[asc.length - 1] >= asc[0]
           return (
             <div className="mcard" key={c.t}>
               <div className="k">{c.t} · {c.n}</div>
               <div className="v">${rows[0]?.close.toFixed(2)}</div>
               <div className="d">{rows[0]?.date}</div>
+              <Chart data={asc} mini color={rising ? '#4ade80' : '#f87171'} />
             </div>
           )
         })}
@@ -284,6 +339,16 @@ const CSS = `
   .atitle { font-size:.98rem; font-weight:650; line-height:1.45; }
   .sent { font-size:.68rem; padding:2px 8px; border-radius:20px; background:#212734; color:#9aa4b2; }
   .sent.pos { background:#12351f; color:#4ade80; } .sent.neg { background:#3a1518; color:#f87171; }
+
+  .chartbox { background:#161a24; border:1px solid #262c3a; border-radius:12px; padding:12px 14px 8px; margin:14px 0 4px; }
+  .chartcap { font-size:.72rem; color:#6b7280; margin:0 0 8px; }
+  .chart { width:100%; height:auto; display:block; }
+  .chart.mini { margin-top:10px; }
+  .chart .clbl { font-size:13px; font-variant-numeric:tabular-nums; }
+  .chart .cmin { fill:#6b7280; }
+  .chart .cpt { cursor:pointer; }
+  .chart .cpt:hover circle:last-child { r:6; }
+  .chart-empty { font-size:.78rem; color:#6b7280; padding:10px 0; }
 
   .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:11px; }
   .mcard { background:#1a1e29; border:1px solid #262c3a; border-radius:12px; padding:14px; }
