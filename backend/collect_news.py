@@ -8,6 +8,7 @@ import urllib.parse
 import xml.etree.ElementTree as ET
 from email.utils import parsedate_to_datetime
 from dotenv import load_dotenv
+from newsfilter import is_junk
 
 load_dotenv()
 FINNHUB_KEY = os.environ.get("FINNHUB_KEY", "")
@@ -37,7 +38,7 @@ def unix_to_ymd(ts):
 
 
 def save(cur, title, summary, source, published, tickers, url):
-    if not title or not url:
+    if not title or not url or is_junk(title):
         return 0
     cur.execute(
         "INSERT OR IGNORE INTO news (title, summary, source, published, sentiment, tickers, url) "

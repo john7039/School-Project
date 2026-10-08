@@ -1,6 +1,7 @@
 import json
 import sqlite3
 from llm import generate_json
+from newsfilter import is_junk
 
 conn = sqlite3.connect("econ.db")
 conn.row_factory = sqlite3.Row
@@ -24,9 +25,16 @@ for ymd in dates:
     iso = f"{ymd[:4]}-{ymd[4:6]}-{ymd[6:8]}"
     if cur.execute("SELECT 1 FROM daily WHERE date=?", (iso,)).fetchone():
         continue
-    rows = cur.execute(
-        "SELECT title, summary, source, sentiment, tickers, url FROM news "
-        "WHERE substr(published,1,8)=? LIMIT 15", (ymd,)).fetchall()
+    # 후보: 일반 경제 뉴스(초보자 학습의 핵심) + 종목 뉴스를 각각 최신순으로.
+    # (무작위 LIMIT 대신 ORDER BY published DESC → 재현성 + 둘 다 후보 보장)
+    cols = "title, summary, source, sentiment, tickers, url"
+    g = cur.execute(
+        f"SELECT {cols} FROM news WHERE substr(published,1,8)=? AND tickers='경제' "
+        "ORDER BY published DESC LIMIT 15", (ymd,)).fetchall()
+    co = cur.execute(
+        f"SELECT {cols} FROM news WHERE substr(published,1,8)=? AND tickers<>'경제' "
+        "ORDER BY published DESC LIMIT 15", (ymd,)).fetchall()
+    rows = [r for r in (list(g) + list(co)) if not is_junk(r["title"])]
     if not rows:
         continue
     cand = "\n".join(
