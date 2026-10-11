@@ -52,46 +52,60 @@ if not rows:
     conn.close()
     raise SystemExit
 
+# ── 1단계: 후보 중 best 1건 "선정"만 (번호만 받음) ──
 cand = "\n".join(
-    f"[{i}] title: {r['title']}\n    summary: {(r['summary'] or '')[:300]}\n    tickers: {r['tickers']}"
+    f"[{i}] {r['title']}  (tickers: {r['tickers']})"
     for i, r in enumerate(rows))
-prompt = f"""아래는 최근 수집된 경제 뉴스 후보들이다.
+pick_prompt = f"""아래는 최근 수집된 경제 뉴스 후보들이다(번호순).
 경제 초보자가 오늘 하나를 읽고 배우기에 가장 좋은 기사 1건을 골라라.
 기준: (1) 이해하기 쉬움 (2) 경제 기본 개념을 배울 수 있음 (3) 내용이 명확함 (4) 종목/지표와 연결되면 가점.
 피할 것: 지나친 전문 분석, 단순 시세 나열, 광고성 기사.
 
-아래 JSON 형식으로만 한국어로 답하라:
-{{
-  "chosen_index": <고른 기사 번호(정수)>,
-  "sentiment": "<고른 기사가 시장·경제에 주는 영향: 반드시 '긍정' '부정' '중립' 중 하나만>",
-  "pick_reason": "<초보자에게 이 기사를 고른 이유 1-2문장>",
-  "brief": "<기사가 무슨 내용인지 1~2문장으로 간단히 요약>",
-  "summary_easy": "<이것은 '요약'이 아니라 '설명'이다. 경제를 전혀 모르는 초보자도 이해하도록 아주 쉽고 자세하게 풀어써라. (1) 무슨 일이 일어났는지, (2) 여기 나오는 핵심 개념이 무엇인지 — 어려운 용어는 쉬운 말이나 일상 비유로 바로 풀어서, (3) 그래서 이게 왜 중요하고 어떤 의미인지를 단계적으로 설명. 쉬운 일상 언어로 5~7문장, 중학생도 이해할 수준으로.>",
-  "glossary": [{{"term": "<용어>", "desc": "<초보자용 설명>"}}]
-}}
-glossary 는 기사에 나오는 어려운 경제 용어 2-4개.
+아래 JSON 형식으로만 답하라:
+{{"chosen_index": <고른 기사 번호(정수)>, "pick_reason": "<초보자에게 이 기사를 고른 이유 1-2문장, 한국어>"}}
 
 후보:
 {cand}"""
 try:
-    data = generate_json(prompt)
+    sel = generate_json(pick_prompt)
 except Exception as e:
-    print(f"{iso}: 실패 ({e.__class__.__name__}) — 다음 실행에서 재시도")
+    print(f"{iso}: 선정 실패 ({e.__class__.__name__}) — 다음 실행에서 재시도")
     conn.close()
     raise SystemExit
 
-idx = int(data.get("chosen_index", 0))
+idx = int(sel.get("chosen_index", 0))
 if idx < 0 or idx >= len(rows):
     idx = 0
 pick = rows[idx]
-sent = data.get("sentiment", "").strip()
+
+# ── 2단계: 고른 "그 기사 하나"만 주고 설명·감정·용어 생성 (제목↔설명 100% 일치) ──
+exp_prompt = f"""아래 기사 하나를 경제 초보자용으로 설명하라.
+제목: {pick['title']}
+요약: {(pick['summary'] or pick['title'])[:400]}
+
+아래 JSON 형식으로만 한국어로 답하라:
+{{
+  "sentiment": "<이 기사가 시장·경제에 주는 영향. 반드시 '긍정'/'부정'/'중립' 중 하나. 악재(유가·물가·금리 상승, 규제, 전쟁·사고, 실적 부진 등)면 '부정', 호재(실적 호조·성장·완화 등)면 '긍정', 정말 애매할 때만 '중립'. 중립을 남발하지 말 것>",
+  "brief": "<기사가 무슨 내용인지 1~2문장으로 간단히 요약>",
+  "summary_easy": "<이것은 '요약'이 아니라 '설명'이다. 경제를 전혀 모르는 초보자도 이해하도록 아주 쉽고 자세하게 풀어써라. (1) 무슨 일이 일어났는지, (2) 여기 나오는 핵심 개념이 무엇인지 — 어려운 용어는 쉬운 말이나 일상 비유로 바로 풀어서, (3) 그래서 이게 왜 중요하고 어떤 의미인지를 단계적으로 설명. 쉬운 일상 언어로 5~7문장, 중학생도 이해할 수준으로. 반드시 위 기사 '제목'의 내용에 대해서만 쓸 것(다른 주제로 새지 말 것).>",
+  "glossary": [{{"term": "<용어>", "desc": "<초보자용 설명>"}}]
+}}
+glossary 는 기사에 나오는 어려운 경제 용어 2-4개."""
+try:
+    data = generate_json(exp_prompt)
+except Exception as e:
+    print(f"{iso}: 설명 실패 ({e.__class__.__name__}) — 다음 실행에서 재시도")
+    conn.close()
+    raise SystemExit
+
+sent = (data.get("sentiment", "") or "").strip()
 if sent not in ("긍정", "부정", "중립"):
     sent = "중립"
 cur.execute(
     "INSERT INTO daily (date, url, title, source, sentiment, tickers, brief, summary_easy, glossary, pick_reason) "
     "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     (iso, pick["url"], pick["title"], pick["source"], sent, pick["tickers"],
-     data.get("brief", ""), data["summary_easy"], json.dumps(data["glossary"], ensure_ascii=False), data["pick_reason"]))
+     data.get("brief", ""), data.get("summary_easy", ""), json.dumps(data.get("glossary", []), ensure_ascii=False), sel.get("pick_reason", "")))
 conn.commit()
 conn.close()
-print(f"{iso}: [{idx}] {pick['title'][:50]} — 큐레이션 완료")
+print(f"{iso}: [{idx}] {pick['title'][:50]} ({sent}) — 큐레이션 완료")
