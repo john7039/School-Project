@@ -127,3 +127,24 @@ def company(ticker: str):
             d["news"] = []
         out.append(d)
     return out
+
+
+@app.get("/api/fx")
+def fx(days: int = 15):
+    """환율 — 날짜별 기록(값·증감·AI 분석, 최신순) + 최근 추이(그래프용)."""
+    conn = get_db()
+    try:
+        rows = conn.execute(
+            "SELECT date, usdkrw, usdkrw_chg, eurkrw, eurkrw_chg, ai_summary "
+            "FROM fx_daily ORDER BY date DESC LIMIT ?", (days,)).fetchall()
+        series = {}
+        for pair in ("USDKRW", "EURKRW"):
+            srows = conn.execute(
+                "SELECT date, rate FROM fx WHERE pair=? ORDER BY date DESC LIMIT ?",
+                (pair, days)).fetchall()
+            series[pair] = [dict(r) for r in srows]
+    except sqlite3.OperationalError:
+        conn.close()
+        return {"days": [], "series": {}}
+    conn.close()
+    return {"days": [dict(r) for r in rows], "series": series}

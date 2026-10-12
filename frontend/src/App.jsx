@@ -276,6 +276,112 @@ function MarketTab() {
   )
 }
 
+// ===== 탭 4: 환율 =====
+// 환율은 '좋다/나쁘다'가 아니라 양면적이라, 감정(초록/빨강) 대신 방향(약세/강세) 색을 쓴다.
+function fxDir(chg) {
+  if (chg == null) return { label: '-', cls: '' }
+  if (chg > 0.5) return { label: '원화 약세 ↑', cls: 'weak' }
+  if (chg < -0.5) return { label: '원화 강세 ↓', cls: 'strong' }
+  return { label: '보합', cls: '' }
+}
+
+function FxPair({ title, sub, rate, chg, series, color, main }) {
+  const d = fxDir(chg)
+  const asc = [...(series || [])].reverse()
+  const pct = rate != null && chg != null && rate - chg ? (chg / (rate - chg)) * 100 : null
+  return (
+    <div className={`fxcard${main ? ' main' : ''}`}>
+      <div className="fxhead">
+        <div><span className="fxname">{title}</span> <span className="fxsub">{sub}</span></div>
+        <span className={`fxdir ${d.cls}`}>{d.label}</span>
+      </div>
+      <div className="fxrate">
+        {rate != null ? rate.toFixed(2) : '-'}<span className="won">원</span>
+        {chg != null && <span className={`fxchg ${chg > 0 ? 'up' : chg < 0 ? 'down' : ''}`}>
+          {chg > 0 ? '+' : ''}{chg.toFixed(2)}원{pct != null && ` (${pct > 0 ? '+' : ''}${pct.toFixed(2)}%)`}
+        </span>}
+      </div>
+      {asc.length >= 2 && <Chart data={asc.map(x => x.rate)} dates={asc.map(x => x.date)}
+        color={color} fmt={v => Math.round(v).toLocaleString()} />}
+    </div>
+  )
+}
+
+function fxLine(rate, chg) {
+  if (rate == null) return '-'
+  const sign = chg > 0 ? '+' : ''
+  return `${rate.toFixed(2)}원 ${chg != null ? `(${sign}${chg.toFixed(2)})` : ''}`
+}
+
+function FxTab() {
+  const [fx, setFx] = useState(null)
+  const [sel, setSel] = useState(null)
+  useEffect(() => { fetch(`${API}/api/fx`).then(r => r.json()).then(setFx).catch(() => setFx({ days: [], series: {} })) }, [])
+  if (!fx) return <div className="panel"><p className="lead">불러오는 중…</p></div>
+  const days = fx.days || []
+  const s = fx.series || {}
+  const t = days[0]
+  const past = days.slice(1)
+  return (
+    <div className="panel">
+      <p className="lead">💱 <b>원/달러·원/유로 환율과 그 의미.</b> 환율은 한쪽만 좋은 게 아니라 <b>양면적</b>이에요 — 누구에게 유리하고 누구에게 불리한지 함께 봅니다.</p>
+      {!t && <p className="lead">아직 환율 분석이 없습니다.</p>}
+      {t && <>
+        <div className="label">최신 환율 · {t.date}</div>
+        <FxPair title="원/달러" sub="USD · 한국 경제에 가장 큰 영향" rate={t.usdkrw} chg={t.usdkrw_chg}
+          series={s.USDKRW} color="#60a5fa" main />
+        <FxPair title="원/유로" sub="EUR · 보조 지표" rate={t.eurkrw} chg={t.eurkrw_chg}
+          series={s.EURKRW} color="#a78bfa" />
+        <div className="sec-h">💬 이날 환율이 우리 경제에 주는 영향 (AI)</div>
+        <div className="ai">{t.ai_summary}</div>
+      </>}
+      {past.length > 0 && <>
+        <div className="label">일자별 기록 · {past.length}건</div>
+        <div className="scroll">
+          {past.map(d => {
+            const dir = fxDir(d.usdkrw_chg)
+            return (
+              <button className="day" key={d.date} onClick={() => setSel(d)}>
+                <div className="day-top"><span>{d.date} ({dowOf(d.date)})</span>
+                  <span className={`fxdir ${dir.cls}`}>{dir.label}</span></div>
+                <div className="day-metrics">
+                  <div className="metric"><span className="k">원/달러</span><span className="v">{fxLine(d.usdkrw, d.usdkrw_chg)}</span></div>
+                  <div className="metric"><span className="k">원/유로</span><span className="v">{fxLine(d.eurkrw, d.eurkrw_chg)}</span></div>
+                </div>
+                <div className="day-sum">{(d.ai_summary || '').slice(0, 52)}…</div>
+                <div className="day-foot"><span>환율 영향 분석</span><span className="arrow">그날 정보 보기 →</span></div>
+              </button>
+            )
+          })}
+        </div>
+      </>}
+      {sel && <Modal onClose={() => setSel(null)}>
+        <div className="m-date">{sel.date} ({dowOf(sel.date)})</div>
+        <h2 className="m-title">💱 환율</h2>
+        <div className="m-row">
+          <div className="metric"><span className="k">원/달러</span><span className="v big">{fxLine(sel.usdkrw, sel.usdkrw_chg)}</span></div>
+          <div className="metric"><span className="k">원/유로</span><span className="v big">{fxLine(sel.eurkrw, sel.eurkrw_chg)}</span></div>
+          <div className="metric"><span className="k">방향</span><span className={`fxdir ${fxDir(sel.usdkrw_chg).cls}`}>{fxDir(sel.usdkrw_chg).label}</span></div>
+        </div>
+        <div className="sec-h">💬 이날 환율이 우리 경제에 주는 영향 (AI)</div>
+        <div className="ai">{sel.ai_summary}</div>
+      </Modal>}
+      <div className="sec-h">📖 환율이 왜 중요한가</div>
+      <div className="fxedu">
+        <p><b>환율이 오른다 = 원화 가치가 떨어진다(원화 약세).</b> 1달러를 사는 데 원화가 더 많이 든다는 뜻이에요.</p>
+        <ul>
+          <li><b>수출·수입</b> — 원화가 약해지면 우리 물건이 외국에서 싸져 <b>수출기업에 유리</b>하지만, 사 오는 물건값은 <b>비싸집니다</b>.</li>
+          <li><b>물가</b> — 원유·원자재를 달러로 사 오기 때문에 환율이 오르면 <b>수입물가 → 생활물가</b>가 따라 오릅니다. (기름값·식료품)</li>
+          <li><b>외국인 투자</b> — 원화 약세가 이어지면 외국인은 환차손을 걱정해 <b>자금을 빼기</b> 쉬워지고, 주식시장이 흔들릴 수 있습니다.</li>
+          <li><b>금리</b> — 한국과 미국의 <b>금리 차</b>가 벌어지면 돈이 이자 높은 쪽(달러)으로 움직여 환율에 영향을 줍니다.</li>
+        </ul>
+        <p className="fxnote"><b>왜 오르내리나</b> — 한·미 금리차, 달러 강세, 무역수지(수출이 잘 되는지), 외국인 자금 흐름, 시장 심리.</p>
+        <p className="fxnote"><b>왜 달러가 더 중요한가</b> — 무역 대금과 원유·원자재 결제가 대부분 달러로 이뤄져, 유로보다 우리 경제에 미치는 영향이 큽니다.</p>
+      </div>
+    </div>
+  )
+}
+
 function App() {
   const [tab, setTab] = useState('articles')
   return (
@@ -289,10 +395,12 @@ function App() {
         <button className={`tab${tab === 'articles' ? ' active' : ''}`} onClick={() => setTab('articles')}>📰 AI 추천 기사</button>
         <button className={`tab${tab === 'stocks' ? ' active' : ''}`} onClick={() => setTab('stocks')}>📊 종목별</button>
         <button className={`tab${tab === 'market' ? ' active' : ''}`} onClick={() => setTab('market')}>📈 시장·지표</button>
+        <button className={`tab${tab === 'fx' ? ' active' : ''}`} onClick={() => setTab('fx')}>💱 환율</button>
       </div>
       {tab === 'articles' && <ArticlesTab />}
       {tab === 'stocks' && <StocksTab />}
       {tab === 'market' && <MarketTab />}
+      {tab === 'fx' && <FxTab />}
     </div>
   )
 }
@@ -304,7 +412,8 @@ const CSS = `
   header h1 { margin:0; font-size:1.4rem; }
   header p { margin:5px 0 0; color:#8b93a1; font-size:.85rem; }
   .tabs { position:sticky; top:0; background:#0f1117; display:flex; gap:4px; border-bottom:1px solid #262c3a; z-index:10; padding-top:4px; }
-  .tab { flex:1; background:none; border:none; color:#8b93a1; font:inherit; font-size:.86rem; font-weight:600; padding:12px 6px; cursor:pointer; border-bottom:2px solid transparent; margin-bottom:-1px; white-space:nowrap; }
+  .tab { flex:1; background:none; border:none; color:#8b93a1; font:inherit; font-size:.82rem; font-weight:600; padding:12px 4px; cursor:pointer; border-bottom:2px solid transparent; margin-bottom:-1px; white-space:nowrap; }
+  @media (max-width:520px) { .tab { font-size:.7rem; padding:11px 2px; } }
   .tab:hover { color:#e6e8eb; }
   .tab.active { color:#4ade80; border-bottom-color:#4ade80; }
   .panel { padding-top:16px; }
@@ -339,6 +448,21 @@ const CSS = `
   .atitle { font-size:.98rem; font-weight:650; line-height:1.45; }
   .sent { font-size:.68rem; padding:2px 8px; border-radius:20px; background:#212734; color:#9aa4b2; }
   .sent.pos { background:#12351f; color:#4ade80; } .sent.neg { background:#3a1518; color:#f87171; }
+
+  .fxcard { background:#1a1e29; border:1px solid #262c3a; border-radius:13px; padding:15px 16px 10px; margin-bottom:12px; }
+  .fxcard.main { border-color:#2b3a55; background:linear-gradient(180deg,#161d2b 0%,#1a1e29 60%); }
+  .fxhead { display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; }
+  .fxname { font-size:1rem; font-weight:700; } .fxsub { font-size:.7rem; color:#6b7280; }
+  .fxdir { font-size:.72rem; padding:3px 9px; border-radius:20px; background:#212734; color:#9aa4b2; white-space:nowrap; }
+  .fxdir.weak { background:#3a2a12; color:#fbbf24; }   /* 원화 약세 — 좋/나쁨 아닌 '방향' */
+  .fxdir.strong { background:#13273f; color:#60a5fa; } /* 원화 강세 */
+  .fxrate { font-size:1.5rem; font-weight:700; margin:8px 0 2px; font-variant-numeric:tabular-nums; }
+  .fxrate .won { font-size:.9rem; font-weight:600; color:#8b93a1; margin-left:2px; }
+  .fxchg { font-size:.82rem; font-weight:600; margin-left:10px; }
+  .fxedu { background:#161a24; border:1px solid #262c3a; border-radius:12px; padding:14px 16px; font-size:.86rem; line-height:1.7; color:#c4cad4; }
+  .fxedu p { margin:0 0 10px; } .fxedu ul { margin:0 0 10px; padding-left:18px; }
+  .fxedu li { margin-bottom:7px; } .fxedu b { color:#e6e8eb; }
+  .fxnote { font-size:.82rem; color:#8b93a1; margin-bottom:6px !important; }
 
   .chartbox { background:#161a24; border:1px solid #262c3a; border-radius:12px; padding:12px 14px 8px; margin:14px 0 4px; }
   .chartcap { font-size:.72rem; color:#6b7280; margin:0 0 8px; }
