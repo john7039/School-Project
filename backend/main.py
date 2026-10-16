@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import sqlite3
 import json
+import datetime
 
 app = FastAPI()
 
@@ -31,16 +32,28 @@ def list_indicators():
     conn.close()
     return [dict(r) for r in rows]
 
-def pct_change(conn, ticker, start_date, days):
+def pct_change(conn, ticker, start_date, days, window=7):
+    """발표일(start_date) 직후 거래일 종가 → days 거래일 뒤 종가의 등락률(%).
+
+    발표일이 주말·공휴일이면 다음 거래일이 기준일이 된다(정상).
+    다만 기준일이 발표일에서 window 일 넘게 떨어져 있으면 그 발표는 주가
+    데이터 범위 밖이라는 뜻이라 None 을 돌려준다. 이 가드가 없던 동안에는
+    범위 밖 발표가 조용히 '보유한 첫 행'을 집어와, 서로 다른 발표 21건이
+    모두 같은 하루(2024-09-16)로 뭉개져 통계가 틀렸다.
+    """
     rows = conn.execute(
         "SELECT date, close FROM prices WHERE ticker=? AND date>=? ORDER BY date ASC LIMIT ?",
         (ticker, start_date, days + 1)
     ).fetchall()
     if len(rows) < days + 1:
         return None
+    gap = (datetime.date.fromisoformat(rows[0]["date"])
+           - datetime.date.fromisoformat(start_date)).days
+    if gap > window:
+        return None
     base = rows[0]["close"]
     after = rows[days]["close"]
-    if base == 0:
+    if not base or after is None:   # 미완성 봉 등으로 close 가 비어 있는 행 방어
         return None
     return round((after - base) / base * 100, 2)
 
@@ -52,8 +65,13 @@ def analysis():
     result = []
     for ind in indicators:
         name = ind["name"]
-        releases = conn.execute("SELECT date FROM indicators WHERE name=? ORDER BY date ASC", (name,)).fetchall()
-        dates = [r["date"] for r in releases]
+        # 기준월(date)이 아니라 FRED 실제 발표일(release_date)로 반응을 측정한다.
+        # 예: 2026-09 CPI 는 2026-10-14 발표 → 10/14 기준으로 봐야 '발표 반응'이다.
+        releases = conn.execute(
+            "SELECT COALESCE(release_date, date) d FROM indicators "
+            "WHERE name=? AND release_date IS NOT NULL AND release_date<>'' ORDER BY d ASC",
+            (name,)).fetchall()
+        dates = [r["d"] for r in releases]
         per_ticker = []
         for ticker in tickers:
             for days in (1, 5):
@@ -71,7 +89,12 @@ def analysis():
                     "total": len(changes),
                     "latest_pct": changes[-1],
                 })
-        result.append({"indicator": name, "release_count": len(dates), "reactions": per_ticker})
+        result.append({
+            "indicator": name,
+            "release_count": len(dates),            # 발표일을 아는 건수
+            "window": [dates[0], dates[-1]] if dates else None,
+            "reactions": per_ticker,                # 각 항목의 total = 실제 집계된 발표 수
+        })
     conn.close()
     return result
 
