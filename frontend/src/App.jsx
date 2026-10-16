@@ -133,7 +133,7 @@ function ArticlesTab() {
   const Card = (a, isToday) => (
     <button className={`art${isToday ? ' today' : ''}`} key={a.date} onClick={() => setSel(a)}>
       <div className="atop">{isToday && <span className="badge">오늘</span>}<span>{a.date} ({dowOf(a.date)})</span>
-        <span className={`sent ${sentClass(a.sentiment)}`}>{a.sentiment}</span></div>
+        <span className={`sent ${sentClass(a.sentiment)}`}>{sentText(a.sentiment)}</span></div>
       <div className="atitle">{a.title}</div>
     </button>
   )
@@ -231,6 +231,17 @@ function StocksTab() {
   )
 }
 
+// 지표 날짜 라벨. FRED 의 date 는 '발표일'이 아니라 '기준월'이다.
+// (9월분 물가는 10/14 에 발표) 그냥 date 만 찍으면 "9월에서 멈췄다"로 오해하게 돼서
+// 기준월과 실제 발표일을 함께 보여준다.
+function indLabel(r) {
+  if (!r) return ''
+  const m = `${r.date?.slice(0, 7).replace('-', '년 ')}월분`
+  if (!r.release_date) return m
+  const [, mm, dd] = r.release_date.split('-')
+  return `${m} · ${Number(mm)}/${Number(dd)} 발표`
+}
+
 // ===== 탭 3: 시장·지표 =====
 function MarketTab() {
   const [prices, setPrices] = useState([])
@@ -250,7 +261,7 @@ function MarketTab() {
           <div className="mcard" key={name}>
             <div className="k">{name}<Info text={INDICATOR_INFO[name] || name} /></div>
             <div className="v">{rows[0]?.value}</div>
-            <div className="d">{rows[0]?.date}</div>
+            <div className="d">{indLabel(rows[0])}</div>
             <Chart data={[...rows].reverse().map(r => r.value)} mini color="#60a5fa" />
           </div>
         ))}
@@ -258,14 +269,16 @@ function MarketTab() {
       <div className="label">주가 (종가)</div>
       <div className="grid">
         {COMPANIES.map(c => {
-          const rows = byTicker[c.t]
-          if (!rows) return null
+          // close 가 비어 있는 행(yfinance 미완성 봉)은 버린다 — 하나라도 섞이면
+          // toFixed 에서 터져 탭 전체가 흰 화면이 됐었다.
+          const rows = (byTicker[c.t] || []).filter(r => r.close != null)
+          if (!rows.length) return null
           const asc = [...rows].reverse().map(r => r.close)
           const rising = asc[asc.length - 1] >= asc[0]
           return (
             <div className="mcard" key={c.t}>
               <div className="k">{c.t} · {c.n}</div>
-              <div className="v">${rows[0]?.close.toFixed(2)}</div>
+              <div className="v">${rows[0]?.close?.toFixed(2)}</div>
               <div className="d">{rows[0]?.date}</div>
               <Chart data={asc} mini color={rising ? '#4ade80' : '#f87171'} />
             </div>
