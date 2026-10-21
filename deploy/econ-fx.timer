@@ -1,0 +1,9 @@
+[Unit]
+Description=Run FX collection daily at Korean market close
+
+[Timer]
+OnCalendar=*-*-* 15:40:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target

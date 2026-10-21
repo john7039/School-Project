@@ -1,0 +1,9 @@
+[Unit]
+Description=Econ FX collector (Korean market close)
+
+[Service]
+Type=oneshot
+User=miniserver
+WorkingDirectory=/home/miniserver/School-Project/backend
+ExecStart=-/home/miniserver/School-Project/backend/.venv/bin/python collect_fx.py
+ExecStart=-/home/miniserver/School-Project/backend/.venv/bin/python fx_curate.py
