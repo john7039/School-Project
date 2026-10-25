@@ -14,3 +14,7 @@ frontend/node_modules/
 .DS_Store
 frontend/dist/
 *.bak
+*.bak[0-9]
+*.bak_*
+*.log
+*.db.bak*

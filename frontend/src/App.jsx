@@ -124,39 +124,296 @@ function Chart({ data, dates, color = '#4ade80', mini = false, fmt = (v) => v, o
 }
 
 // ===== 탭 1: AI 추천 기사 =====
+// 방향 기호 — 긍정 ▲ / 부정 ▼ / 중립 ▬
+function arrowOf(s) { const t = sentText(s); return t === '긍정' ? '▲' : t === '부정' ? '▼' : '▬' }
+
+// 카드 겉면에 붙는 기업별 영향 요약.
+// 회의에서 나온 지적이 "무슨 기업이 어떤 영향을 받아 긍부정인지 하나도
+// 안 나와있음" 이었다. 모달을 열어야 보이면 그 지적이 안 풀리므로,
+// 목록을 훑기만 해도 기업과 방향이 보이게 카드에 올린다. 이유는 눌러서 본다.
+function ImpactBadges({ impacts }) {
+  if (!impacts || impacts.length === 0) return null
+  return (
+    <div className="impbadges">
+      <span className="impbadges-h">🏢</span>
+      {impacts.slice(0, 3).map((x, i) => (
+        <span className={`impbadge ${sentClass(x.sentiment)}`} key={i}>
+          {x.company} {arrowOf(x.sentiment)}{x.kind === '간접' && <i className="est">추정</i>}
+        </span>
+      ))}
+    </div>
+  )
+}
+
+// 기사 카드 한 종류. 오늘의 추천도, 검색 결과도, 지난 기록도 이걸 쓴다.
+// 같은 모양이어야 "검색해도 추천 기사처럼 분석해 준다"가 전달된다.
+function ArticleCard({ a, badge, dateText, onClick }) {
+  return (
+    <button className={`art${badge ? ' today' : ''}`} onClick={onClick}>
+      <div className="atop">
+        {badge && <span className="badge">{badge}</span>}
+        <span>{dateText}</span>
+        <span className={`sent ${sentClass(a.sentiment)}`}>{sentText(a.sentiment)}</span>
+        <span className="asrc">{a.source}</span>
+      </div>
+      <div className="atitle">{a.title_ko || a.title}</div>
+      {a.title_ko && <div className="aorig">원제 · {a.title}</div>}
+      {a.brief && <div className="day-sum">{a.brief}</div>}
+      <ImpactBadges impacts={a.impacts} />
+    </button>
+  )
+}
+
+// 모달 본문 — 기업별 영향을 직접/간접으로 나눠 보여준다.
+// 직접은 기사에 근거가 있고, 간접은 우리가 추론한 것이다. 섞어 놓으면
+// 사용자가 추론을 사실로 읽으므로 "AI 추정" 이라고 밝혀서 나눈다.
+function ArticleBody({ a }) {
+  const imp = a.impacts || []
+  const direct = imp.filter(x => x.kind !== '간접')
+  const indirect = imp.filter(x => x.kind === '간접')
+
+  const Row = (x, i) => (
+    <div className="imp" key={i}>
+      <div className="imp-top">
+        <b>{x.company}</b>
+        {x.ticker && <span className="imp-tk">{x.ticker}</span>}
+        <span className={`sent ${sentClass(x.sentiment)}`}>
+          {arrowOf(x.sentiment)} {sentText(x.sentiment)}
+        </span>
+      </div>
+      <div className="imp-why">{x.reason}</div>
+    </div>
+  )
+
+  return (
+    <>
+      <div className="m-sub">출처 · {a.source}</div>
+      {a.title_ko && <div className="m-orig">원제 · {a.title}</div>}
+      <a className="src-btn" href={a.url} target="_blank" rel="noreferrer">🔗 원문 보기</a>
+
+      {a.brief && <><div className="sec-h">📄 한 줄 요약</div>
+        <p className="m-body">{a.brief}</p></>}
+
+      {imp.length > 0 && <>
+        <div className="sec-h">🏢 이 기사가 기업에 주는 영향</div>
+        {direct.length > 0 && <>
+          <div className="imp-kind">직접 — 기사에 나온 기업</div>
+          <div className="imps">{direct.map(Row)}</div>
+        </>}
+        {indirect.length > 0 && <>
+          <div className="imp-kind">간접 — 우리가 보는 종목에 미칠 영향 <i>· AI 추정</i></div>
+          <div className="imps">{indirect.map(Row)}</div>
+        </>}
+        {a.sentiment_reason && (
+          <div className="imp-all">시장 전체로는 <b>{sentText(a.sentiment)}</b> · {a.sentiment_reason}</div>
+        )}
+      </>}
+
+      {a.pick_reason && <><div className="sec-h">💡 이 기사를 고른 이유</div>
+        <div className="ai">{a.pick_reason}</div></>}
+      <div className="sec-h">💡 쉬운 설명</div>
+      <p className="m-body">{a.summary_easy}</p>
+      {(a.glossary || []).length > 0 && <><div className="sec-h">📖 용어 설명</div>
+        <ul className="glossary">{a.glossary.map((g, i) => <li key={i}><b>{g.term}</b>{g.desc}</li>)}</ul></>}
+    </>
+  )
+}
+
+// ===== 탭 1: AI 추천 기사 =====
+//
+// 화면 순서가 곧 설계다 —
+//   오늘의 추천  : 아무것도 안 해도 오늘 몫이 준비돼 있다 (기본값)
+//   검색         : 궁금한 단어를 넣으면 그 주제로 한 건 골라 준다
+//   지난 분석    : 쌓인 기록. 검색 중에는 감춰서 화면이 길어지지 않게 한다
 function ArticlesTab() {
   const [daily, setDaily] = useState([])
   const [sel, setSel] = useState(null)
-  useEffect(() => { fetch(`${API}/api/daily`).then(r => r.json()).then(setDaily).catch(() => {}) }, [])
+
+  const [q, setQ] = useState('')
+  const [res, setRes] = useState(null)
+  const [pick, setPick] = useState(null)
+  const [busy, setBusy] = useState(false)
+  const [showList, setShowList] = useState(false)
+
+  useEffect(() => {
+    fetch(`${API}/api/daily`).then(r => r.json()).then(setDaily).catch(() => {})
+  }, [])
+
+  // 분석은 1~2분 걸리므로 서버가 백그라운드로 돌리고, 여기서 몇 초마다
+  // 상태를 물어본다. 긴 HTTP 연결을 붙잡고 있으면 nginx(60초)·브라우저·
+  // Funnel 중 어디선가 끊긴다. 실제로 '유가' 가 60초에 끊겨서 화면에
+  // 아무 일도 일어나지 않았다.
+  useEffect(() => {
+    if (!pick || pick.status !== 'working') return
+    const t = setTimeout(() => {
+      fetch(`${API}/api/news/pick?q=${encodeURIComponent(pick.query)}`)
+        .then(r => r.json()).then(setPick)
+        .catch(() => setPick(p => ({ ...p, status: 'error', message: '서버에 연결하지 못했습니다' })))
+    }, 3000)
+    return () => clearTimeout(t)
+  }, [pick])
+
   const today = daily[0]
   const past = daily.slice(1)
-  const Card = (a, isToday) => (
-    <button className={`art${isToday ? ' today' : ''}`} key={a.date} onClick={() => setSel(a)}>
-      <div className="atop">{isToday && <span className="badge">오늘</span>}<span>{a.date} ({dowOf(a.date)})</span>
-        <span className={`sent ${sentClass(a.sentiment)}`}>{sentText(a.sentiment)}</span></div>
-      <div className="atitle">{a.title}</div>
-    </button>
-  )
+
+  const run = (term) => {
+    const word = (term ?? q).trim()
+    if (!word) return
+    setQ(word); setBusy(true); setPick(null); setShowList(false)
+    fetch(`${API}/api/news/search?q=${encodeURIComponent(word)}&limit=30`)
+      .then(r => r.json()).then(setRes)
+      .catch(() => setRes({ query: word, expanded: [], count: 0, items: [], failed: true }))
+      .finally(() => setBusy(false))
+    fetch(`${API}/api/news/pick?q=${encodeURIComponent(word)}`)
+      .then(r => r.json()).then(setPick)
+      .catch(() => setPick({ status: 'error', query: word, message: '서버에 연결하지 못했습니다' }))
+  }
+
+  const analyze = () => {
+    setPick(p => ({ ...p, status: 'working', elapsed: 0 }))
+    fetch(`${API}/api/news/pick?q=${encodeURIComponent(q)}&force=true`)
+      .then(r => r.json()).then(setPick)
+      .catch(() => setPick(p => ({ ...p, status: 'error', message: '분석을 시작하지 못했습니다' })))
+  }
+
+  const clear = () => { setQ(''); setRes(null); setPick(null); setShowList(false) }
+
+  const searching = !!res
+
   return (
     <div className="panel">
-      <p className="lead">📰 <b>LLM이 고른, 경제 초보가 읽기 좋은 오늘의 기사.</b> 하루 한 건씩 쌓여 지난 날짜도 다시 볼 수 있어요.</p>
-      {today && <><div className="label">최신 기사</div>{Card(today, true)}</>}
-      {past.length > 0 && <><div className="label">지난 기록 · {past.length}건</div>
-        <div className="scroll">{past.map(a => Card(a, false))}</div></>}
-      {daily.length === 0 && <p className="lead">아직 큐레이션된 기사가 없습니다.</p>}
+      <p className="lead">📰 <b>경제를 몰라도 읽히는 오늘의 뉴스.</b> AI가 기사를 골라 쉽게 풀어주고, 어느 기업에 어떤 영향인지까지 알려줘요.</p>
+
+      {/* ① 기본값 — 오늘의 추천 */}
+      {today && <>
+        <div className="label">오늘의 추천</div>
+        <ArticleCard a={today} badge="오늘"
+          dateText={`${today.date} (${dowOf(today.date)})`}
+          onClick={() => setSel(today)} />
+      </>}
+      {daily.length === 0 && <p className="lead">아직 분석된 기사가 없습니다.</p>}
+
+      {/* ② 검색 */}
+      <div className="search">
+        <div className="label">다른 주제가 궁금하세요?</div>
+        <div className="search-row">
+          <input className="search-in"
+            placeholder="알고 싶은 단어 — 금리, 테슬라, 반도체…"
+            value={q}
+            onChange={e => setQ(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') run() }} />
+          <button className="search-btn" onClick={() => run()} disabled={busy}>
+            {busy ? '찾는 중…' : '검색'}
+          </button>
+          {searching && <button className="search-clear" onClick={clear}>✕</button>}
+        </div>
+        <div className="search-chips">
+          {['금리', '물가', '테슬라', '반도체', '환율', '실적'].map(w => (
+            <button key={w} className={`chip${q === w ? ' on' : ''}`} onClick={() => run(w)}>{w}</button>
+          ))}
+        </div>
+      </div>
+
+      {searching && <div className="search-res">
+        {res.count === 0 && <div className="empty">
+          <p className="lead">
+            &lsquo;{res.query}&rsquo; 로 찾은 기사가 없습니다.
+            <br />뉴스를 미국 시장 중심으로 모으고 있어서, 국내 기업은 아직 기사가 없을 수 있어요.
+          </p>
+          {(res.suggest || []).length > 0 && <>
+            <div className="empty-h">대신 이런 주제는 어떠세요?</div>
+            <div className="search-chips">
+              {res.suggest.map(w => (
+                <button key={w} className="chip" onClick={() => run(w)}>{w}</button>
+              ))}
+            </div>
+          </>}
+        </div>}
+
+        {/* 범위를 밝힌다 — 오늘 기사가 적으면 넓혔다고 알려준다 */}
+        {pick && pick.range && pick.range !== '오늘' && (
+          <div className="range-note">
+            오늘 기사가 적어 <b>{pick.range}</b> 기사 {pick.candidates}건 중에서 골랐습니다
+          </div>
+        )}
+        {pick && pick.range === '오늘' && (
+          <div className="range-note">오늘 기사 {pick.candidates}건 중에서 골랐습니다</div>
+        )}
+
+        {pick && pick.status === 'ready' && (
+          <ArticleCard a={pick} badge="AI 선별"
+            dateText={`‘${pick.query}’`}
+            onClick={() => setSel({ ...pick, date: null })} />
+        )}
+
+        {pick && pick.status === 'pending' && res.count > 0 && (
+          <div className="pickbox">
+            <div className="pickbox-t">이 단어는 아직 분석 전입니다.</div>
+            <button className="search-btn wide" onClick={analyze}>
+              🤖 AI에게 기사 골라 분석시키기 <span className="dim">· 1~2분</span>
+            </button>
+          </div>
+        )}
+
+        {pick && pick.status === 'working' && (
+          <div className="pickbox">
+            <div className="thinking">
+              <span className="spin" />
+              AI가 기사를 고르고 분석하는 중입니다… <b>{pick.elapsed || 0}초</b>
+            </div>
+            <div className="thinking-sub">
+              서버 안의 로컬 AI가 직접 돌고 있어요. 보통 1~2분 걸립니다. 창을 닫지 말고 기다려 주세요.
+            </div>
+          </div>
+        )}
+
+        {pick && pick.status === 'error' && (
+          <div className="pickbox err">
+            <div className="pickbox-t">분석에 실패했습니다. {pick.message}</div>
+            <button className="search-btn wide" onClick={analyze}>다시 시도</button>
+          </div>
+        )}
+
+        {res.count > 0 && <>
+          <button className="foldbtn" onClick={() => setShowList(v => !v)}>
+            이 단어로 찾은 기사 {res.count}건 {showList ? '▴' : '▾'}
+            {res.live && <span className="livetag">방금 새로 받아옴</span>}
+            {res.expanded.length > 1 &&
+              <span className="search-exp"> · 기사가 영어라 {res.expanded.slice(1, 4).join(', ')} 로도 찾음</span>}
+          </button>
+          {showList && <div className="scroll">
+            {res.items.map((a, i) => (
+              <a className="art thin" key={i} href={a.url} target="_blank" rel="noreferrer">
+                <div className="atop">
+                  <span>{(a.published || '').slice(4, 6)}-{(a.published || '').slice(6, 8)}</span>
+                  <span className="hit">{a.matched} · {a.matched_in}</span>
+                  <span className="asrc">{a.source} ↗</span>
+                </div>
+                <div className="atitle">{a.title_ko || a.title}</div>
+              </a>
+            ))}
+          </div>}
+        </>}
+      </div>}
+
+      {/* ③ 지난 기록 — 검색 중에는 감춘다 */}
+      {!searching && past.length > 0 && <>
+        <div className="label">지난 분석 · {past.length}건</div>
+        <div className="scroll">
+          {past.map(a => (
+            <ArticleCard key={a.date} a={a}
+              dateText={`${a.date} (${dowOf(a.date)})`}
+              onClick={() => setSel(a)} />
+          ))}
+        </div>
+      </>}
+
       {sel && <Modal onClose={() => setSel(null)}>
-        <div className="m-date">{sel.date} ({dowOf(sel.date)})</div>
-        <h2 className="m-title">{sel.title}</h2>
-        <div className="m-sub">출처 · {sel.source}</div>
-        <a className="src-btn" href={sel.url} target="_blank" rel="noreferrer">🔗 원문 보기</a>
-        <div className="sec-h">💡 이 기사를 고른 이유</div>
-        <div className="ai">{sel.pick_reason}</div>
-        {sel.brief && <><div className="sec-h">📄 요약</div>
-        <p className="m-body">{sel.brief}</p></>}
-        <div className="sec-h">💡 쉬운 설명</div>
-        <p className="m-body">{sel.summary_easy}</p>
-        {(sel.glossary || []).length > 0 && <><div className="sec-h">📖 용어 설명</div>
-          <ul className="glossary">{sel.glossary.map((g, i) => <li key={i}><b>{g.term}</b>{g.desc}</li>)}</ul></>}
+        <div className="m-date">
+          {sel.date ? `${sel.date} (${dowOf(sel.date)})` : `🔎 ‘${sel.query}’ · AI가 고른 기사`}
+        </div>
+        <h2 className="m-title">{sel.title_ko || sel.title}</h2>
+        <ArticleBody a={sel} />
       </Modal>}
     </div>
   )
@@ -441,6 +698,75 @@ const CSS = `
   .ct { font-weight:700; font-size:.85rem; } .cn { font-size:.66rem; opacity:.85; margin-top:1px; }
   .cohead { display:flex; align-items:baseline; justify-content:space-between; gap:10px; margin:16px 0 4px; flex-wrap:wrap; }
   .coname { font-size:1.1rem; font-weight:700; } .coprice { font-weight:700; font-variant-numeric:tabular-nums; }
+
+  .pickbox.err { border-color:#5b2a2f; background:#1d1316; }
+  .pickbox.err .pickbox-t { color:#f87171; }
+  .spin { display:inline-block; width:11px; height:11px; margin-right:7px; vertical-align:-1px;
+          border:2px solid #2f6b45; border-top-color:#4ade80; border-radius:50%;
+          animation:spin 0.8s linear infinite; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { .spin { animation-duration:3s; } }
+
+  .empty { background:#161b26; border:1px solid #262c3a; border-radius:13px; padding:16px; }
+  .empty .lead { margin:0 0 4px; }
+  .empty-h { font-size:.82rem; color:#8b93a1; margin:12px 0 8px; }
+
+  .livetag { display:inline-block; font-size:.68rem; color:#4ade80; background:#12351f; border-radius:20px; padding:2px 9px; margin-left:7px; vertical-align:1px; }
+
+  /* 카드 겉면 기업 뱃지 · 범위 안내 · 접기 */
+  .impbadges { display:flex; align-items:center; gap:6px; flex-wrap:wrap; margin-top:10px; }
+  .impbadges-h { font-size:.78rem; opacity:.7; }
+  .impbadge { font-size:.72rem; padding:3px 9px; border-radius:20px; background:#212734; color:#9aa4b2; white-space:nowrap; }
+  .impbadge.pos { background:#12351f; color:#4ade80; }
+  .impbadge.neg { background:#3a1518; color:#f87171; }
+  .impbadge .est { font-style:normal; font-size:.62rem; opacity:.7; margin-left:4px; padding-left:5px; border-left:1px solid currentColor; }
+  .aorig { font-size:.74rem; color:#6b7280; margin-top:5px; line-height:1.4; }
+  .m-orig { font-size:.78rem; color:#6b7280; margin-top:3px; line-height:1.45; }
+  .art.thin { padding:12px 14px; }
+  .art.thin .atitle { font-size:.9rem; font-weight:600; }
+  .range-note { font-size:.8rem; color:#8b93a1; background:#161b26; border-left:2px solid #2f6b45; padding:8px 12px; border-radius:0 8px 8px 0; margin-bottom:12px; line-height:1.5; }
+  .range-note b { color:#4ade80; }
+  .foldbtn { width:100%; text-align:left; background:none; border:none; border-top:1px solid #262c3a; color:#8b93a1; font:inherit; font-size:.82rem; padding:12px 2px; margin-top:14px; cursor:pointer; }
+  .foldbtn:hover { color:#e6e8eb; }
+  .imp-kind { font-size:.76rem; color:#6b7280; margin:10px 0 7px; }
+  .imp-kind i { font-style:normal; color:#8b7a3a; }
+
+  /* 기사 검색 — AI 선별 카드와 기업별 영향 */
+  .pickcard { margin-bottom:14px; }
+  .pickbox { background:#161b26; border:1px dashed #2f3646; border-radius:13px; padding:15px 16px; margin-bottom:14px; }
+  .pickbox-t { font-size:.86rem; color:#8b93a1; margin-bottom:10px; }
+  .search-btn.wide { width:100%; padding:13px; }
+  .search-btn .dim { opacity:.7; font-weight:400; }
+  .thinking { font-size:.9rem; color:#4ade80; line-height:1.5; }
+  .thinking-sub { font-size:.78rem; color:#6b7280; margin-top:5px; }
+  .imps { display:flex; flex-direction:column; gap:9px; }
+  .imp { background:#12151d; border:1px solid #262c3a; border-radius:11px; padding:11px 13px; }
+  .imp-top { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:6px; }
+  .imp-tk { font-size:.66rem; color:#8b93a1; background:#212734; padding:2px 7px; border-radius:5px; font-variant-numeric:tabular-nums; }
+  .imp-why { font-size:.84rem; color:#9aa4b2; line-height:1.55; }
+  .imp-all { margin-top:9px; font-size:.8rem; color:#8b93a1; line-height:1.5; }
+  .imp-none { font-size:.84rem; color:#6b7280; line-height:1.55; }
+
+  /* 기사 검색 */
+  .search { margin:6px 0 18px; }
+  .search-row { display:flex; gap:8px; }
+  .search-in { flex:1; min-width:0; background:#12151d; border:1px solid #262c3a; border-radius:11px; padding:12px 14px; font:inherit; font-size:.95rem; color:#e6e8eb; }
+  .search-in::placeholder { color:#5b6372; }
+  .search-in:focus { outline:none; border-color:#2f6b45; }
+  .search-btn { flex:0 0 auto; background:#12351f; border:1px solid #1c4a2b; color:#4ade80; border-radius:11px; padding:12px 18px; font:inherit; font-weight:700; cursor:pointer; }
+  .search-btn:hover:not(:disabled) { background:#174227; }
+  .search-btn:disabled { opacity:.55; cursor:default; }
+  .search-clear { flex:0 0 auto; background:#1a1e29; border:1px solid #262c3a; color:#8b93a1; border-radius:11px; padding:12px 14px; font:inherit; cursor:pointer; }
+  .search-clear:hover { border-color:#3a4358; color:#e6e8eb; }
+  .search-chips { display:flex; gap:7px; flex-wrap:wrap; margin-top:9px; }
+  .search-chips .chip { min-width:0; padding:6px 12px; font-size:.8rem; }
+  .search-res { margin-top:15px; }
+  .search-head { font-size:.84rem; color:#8b93a1; margin-bottom:9px; line-height:1.5; }
+  .search-exp { color:#6b7280; }
+  .search-exp b { color:#8b93a1; font-weight:600; }
+  .hit { background:#1d2a3d; color:#8fb4e8; font-size:.68rem; padding:2px 8px; border-radius:20px; }
+  .asrc { margin-left:auto; color:#6b7280; }
+  a.art { text-decoration:none; }
 
   .scroll { display:flex; flex-direction:column; gap:10px; max-height:460px; overflow-y:auto; padding-right:4px; }
   .scroll::-webkit-scrollbar { width:8px; } .scroll::-webkit-scrollbar-thumb { background:#2f3646; border-radius:4px; }

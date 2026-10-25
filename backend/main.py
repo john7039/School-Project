@@ -2,7 +2,12 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import sqlite3
 import json
+import re
+import threading
+import time
 import datetime
+
+from search_terms import POPULAR, expand
 
 app = FastAPI()
 
@@ -105,14 +110,400 @@ def list_news():
     conn.close()
     return [dict(r) for r in rows]
 
+# 한국어에는 띄어쓰기 경계가 없어서 부분 일치로 두면 엉뚱한 데 걸린다.
+# 실제로 '인텔' 이 번역 제목의 "슈퍼 인텔리전스" 에 걸렸다. '비자'⊂'비자금',
+# '포드'⊂'옥스포드' 도 같은 함정이다.
+#
+# 대신 조사는 허용해야 한다 — "인텔은", "인텔이", "삼성의" 는 걸려야 하니까.
+# 그래서 "검색어 뒤에 조사가 붙거나, 한글이 아닌 것이 오면 일치" 로 본다.
+_PARTICLES = ("으로서", "으로써", "이라고", "에게서", "으로", "에서", "에게", "부터",
+              "까지", "보다", "처럼", "라고", "한테", "께서", "이나", "밖에",
+              "조차", "마저", "이란", "이는", "은", "는", "이", "가", "을", "를",
+              "의", "에", "와", "과", "도", "만", "로", "나", "든", "뿐", "들")
+_HANGUL = re.compile(r"[가-힣]")
+
+
+def _ko_contains(term, text):
+    """한국어 검색어가 text 안에 '낱말로' 들어 있는지.
+
+    앞뒤가 한글로 이어지면 더 긴 낱말의 일부이므로 일치로 보지 않는다.
+    단, 뒤에 붙은 것이 조사면 일치로 본다.
+    """
+    start = 0
+    while True:
+        i = text.find(term, start)
+        if i < 0:
+            return False
+        start = i + 1
+
+        if i > 0 and _HANGUL.match(text[i - 1]):
+            continue                      # 앞이 한글 — 더 긴 낱말의 일부
+
+        rest = text[i + len(term):]
+        if not rest or not _HANGUL.match(rest[0]):
+            return True                   # 뒤가 끝이거나 한글이 아님
+        for part in _PARTICLES:           # 긴 조사부터 본다
+            if rest.startswith(part):
+                after = rest[len(part):]
+                if not after or not _HANGUL.match(after[0]):
+                    return True
+    return False
+
+
+def _first_match(terms, text):
+    """terms 중 text 안에 실제로 있는 첫 표현을 돌려준다(없으면 None).
+
+    영어 표현은 단어 경계를 요구한다 — 안 그러면 'rates' 가 'corporates' 에,
+    'rate' 가 'accurate' 에 걸려서 엉뚱한 기사가 검색 결과에 섞인다.
+    한국어는 조사까지 감안한 _ko_contains 로 본다.
+    """
+    if not text:
+        return None
+    low = text.lower()
+    for t in terms:
+        if re.search(r"[A-Za-z0-9]", t):
+            if re.search(r"(?<![A-Za-z0-9])" + re.escape(t.lower())
+                         + r"(?![A-Za-z0-9])", low):
+                return t
+        elif _ko_contains(t.lower(), low):
+            return t
+    return None
+
+
+@app.get("/api/news/search")
+def search_news(q: str = "", limit: int = 30):
+    """제목·요약·한국어 제목에서 검색어를 찾는다.
+
+    수집한 기사가 전부 영어라, 한국어로 검색하면 그대로는 한 건도 안 걸린다.
+    그래서 두 가지를 같이 쓴다 —
+      1) search_terms 사전으로 한국어 검색어를 영어 표현들로 넓히고,
+      2) 번역이 채워진 기사는 title_ko 에서 한국어 그대로 찾는다.
+    무엇으로 찾았는지(expanded)를 함께 돌려줘서, 화면이
+    "'금리' → interest rate 로 찾았습니다" 처럼 보여줄 수 있게 한다.
+    """
+    terms = expand(q)
+    if not terms:
+        return {"query": q, "expanded": [], "count": 0, "items": [],
+                "suggest": POPULAR}
+
+    # 미리 모아둔 기사만 뒤지면 서랍에 없는 단어는 영영 0건이다. '현대차' 가
+    # 그랬다. 그래서 처음 보는 단어는 그 자리에서 Google 뉴스에 물어본다.
+    # 같은 날 같은 단어는 이미 DB 에 들어와 있으므로 하루 한 번만 받는다.
+    #
+    # 실패해도 검색은 계속된다 — 받아오던 게 막히면 기존 DB 검색으로 넘어간다.
+    # 외부에 기대는 기능이라 이 이중화가 없으면 구글이 막히는 순간 검색이 통째로
+    # 죽는다. collect_news.py 가 Finnhub↔RSS 로 하는 것과 같은 방식이다.
+    live = False
+    try:
+        import rss_search
+        c0 = get_db()
+        live = rss_search.collect_once(c0, q, _latest_day(c0))
+        c0.close()
+    except Exception as e:
+        print(f"검색 중 기사 수집 실패({e.__class__.__name__}) — 기존 DB 로 진행")
+
+    limit = max(1, min(limit, 100))
+    conds, params = [], []
+    for t in terms:
+        # LIKE 와일드카드가 검색어에 들어 있어도 글자 그대로 찾게 이스케이프
+        esc = t.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        pat = "%" + esc + "%"
+        conds.append(
+            "(title LIKE ? ESCAPE '\\' "
+            "OR IFNULL(title_ko,'') LIKE ? ESCAPE '\\' "
+            "OR IFNULL(summary,'') LIKE ? ESCAPE '\\')")
+        params += [pat, pat, pat]
+
+    conn = get_db()
+    # LIKE 는 단어 안쪽에도 걸린다("rates" 가 "corporates" 에). 그래서 SQL 은
+    # 후보를 넉넉히 추리는 데만 쓰고, 실제 판정은 아래 단어 경계 검사로 한다.
+    rows = conn.execute(
+        "SELECT title, title_ko, summary, source, published, tickers, url FROM news "
+        "WHERE " + " OR ".join(conds) + " ORDER BY published DESC LIMIT ?",
+        params + [min(limit * 10, 300)]
+    ).fetchall()
+    conn.close()
+
+    out = []
+    for r in rows:
+        d = dict(r)
+        title_hay = (d["title"] or "") + " " + (d["title_ko"] or "")
+        hit = _first_match(terms, title_hay)
+        where = "제목"
+        if not hit:
+            hit = _first_match(terms, d["summary"] or "")
+            where = "요약"
+        if not hit:
+            continue          # LIKE 로만 걸린 단어 안쪽 오탐 — 버린다
+        d["matched"] = hit
+        d["matched_in"] = where
+        d["_score"] = 2 if where == "제목" else 1
+        out.append(d)
+
+    # 제목에서 걸린 기사를 먼저, 그 안에서 최신순
+    out.sort(key=lambda d: (d["_score"], d["published"] or ""), reverse=True)
+    out = out[:limit]
+    for d in out:
+        d.pop("_score", None)
+    res = {"query": q, "expanded": terms, "count": len(out), "items": out,
+           "live": live}
+    if not out:
+        # 기사가 없는 단어도 있다. 수집이 미국 기사 중심이라 '현대차'·'기아'
+        # 같은 건 0건이다. 빈 화면만 주지 말고 눌러볼 것을 같이 준다.
+        res["suggest"] = POPULAR
+    return res
+
+
+
+# 분석을 HTTP 요청 안에서 끝내지 않는 이유 —
+# 분석 한 건이 66~112초 걸리는데 nginx 의 proxy_read_timeout 기본값이 60초다.
+# 실제로 '유가' 를 분석시켰더니 60초에 연결이 끊겨 화면에서 아무 일도 일어나지
+# 않았다. 타임아웃만 늘려도 브라우저와 Tailscale Funnel 에 각자 타임아웃이
+# 있으므로, 긴 작업을 연결에 매달아 두는 구조 자체를 바꾼다.
+#
+# 요청은 작업만 띄우고 바로 돌아오고, 화면이 몇 초마다 상태를 물어본다.
+_JOBS = {}                      # keyword -> {"started": float, "error": str|None}
+_JOBS_LOCK = threading.Lock()
+# CPU 한 대로 모델을 돌리므로 동시에 두 건을 돌리면 둘 다 느려진다. 한 번에 하나.
+_ANALYZE_LOCK = threading.Lock()
+
+
+def _job_state(q):
+    with _JOBS_LOCK:
+        j = _JOBS.get(q)
+        return dict(j) if j else None
+
+
+def _run_analysis(q, day0, cands, range_label, redo):
+    """백그라운드에서 고르기 → 분석 → 저장까지. 실패해도 상태에 남긴다."""
+    import analyze
+    try:
+        with _ANALYZE_LOCK:
+            conn = get_db()
+            _ensure_tables(conn)
+            try:
+                idx = analyze.pick(cands, topic=q)
+            except Exception:
+                idx = 0
+            art = cands[idx]
+
+            row = None if redo else conn.execute(
+                "SELECT 1 FROM article_analysis WHERE url=?", (art["url"],)).fetchone()
+            if row is None:
+                res = analyze.full(art["title"], art["summary"], art["tickers"])
+                if not res["summary_easy"]:
+                    raise RuntimeError("설명 생성 실패")
+                _save_analysis(conn, art, res)
+
+            conn.execute(
+                "INSERT OR REPLACE INTO search_keyword "
+                "(keyword, day, url, range_label, candidates, created) "
+                "VALUES (?,?,?,?,?,datetime('now'))",
+                (q, day0, art["url"], range_label, len(cands)))
+            conn.commit()
+            conn.close()
+        with _JOBS_LOCK:
+            _JOBS.pop(q, None)
+    except Exception as e:
+        with _JOBS_LOCK:
+            _JOBS[q] = {"started": _JOBS.get(q, {}).get("started", time.time()),
+                        "error": f"{e.__class__.__name__}: {e}"[:200]}
+
+
+# 날짜 사다리 — 오늘 기사가 적으면 범위를 넓히되, 넓혔다는 걸 화면에 밝힌다.
+# 오늘 수집량은 평균 150건이지만 키워드로 좁히면 편차가 크다. 실측으로
+# 인공지능 30건 / 테슬라 19건인데 금리·환율·고용은 2건뿐이다. 2건 중에
+# 고르는 건 고르는 게 아니므로, 8건이 될 때까지 단계적으로 넓힌다.
+LADDER = [("오늘", 0), ("최근 3일", 2), ("최근 7일", 6), ("전체 기간", None)]
+MIN_CANDIDATES = 8
+
+
+def _latest_day(conn=None):
+    """오늘 날짜(KST, YYYYMMDD). 캐시 키이자 날짜 사다리의 기준일.
+
+    처음에는 'news 에 들어온 가장 최근 날짜' 를 썼다. Finnhub 기사가 UTC 라
+    한국 날짜보다 하루 늦게 들어오는 걸 감안한 것이었는데, 검색으로 오늘
+    기사를 받아오기 시작하면서 문제가 됐다 — 기사가 하나 들어오는 순간
+    기준일이 하루 넘어가고, 그날 미리 계산해 둔 키워드 7개가 **한꺼번에**
+    무효가 됐다. 화면에서는 "눌러도 아무 반응이 없는" 것으로 보였다.
+
+    달력 날짜는 하루에 한 번만 바뀌므로 캐시가 흔들리지 않는다. Finnhub 의
+    하루 지연은 날짜 사다리(오늘→3일→7일)가 알아서 흡수한다.
+    """
+    return (datetime.datetime.now(datetime.timezone.utc)
+            + datetime.timedelta(hours=9)).strftime("%Y%m%d")
+
+
+def _candidates(items, day0):
+    """사다리를 올라가며 후보가 MIN_CANDIDATES 이상 되는 첫 범위를 고른다."""
+    if not day0:
+        return items, "전체 기간"
+    base = datetime.date(int(day0[:4]), int(day0[4:6]), int(day0[6:8]))
+    for label, back in LADDER:
+        if back is None:
+            return items, label
+        since = (base - datetime.timedelta(days=back)).strftime("%Y%m%d")
+        sub = [i for i in items if (i["published"] or "")[:8] >= since]
+        if len(sub) >= MIN_CANDIDATES:
+            return sub, label
+    return items, "전체 기간"
+
+
+def _ensure_tables(conn):
+    """분석은 기사(url) 단위로 저장한다.
+
+    키워드 단위로 저장했더니 '테슬라' 와 '실적' 이 같은 기사를 골랐을 때
+    60초짜리 분석을 두 번 돌렸다. 기사 단위로 두면 어느 입구로 들어오든
+    한 번만 분석하고, 매일 추천·검색·지난 기록이 같은 결과를 가리킨다.
+    """
+    conn.execute("""CREATE TABLE IF NOT EXISTS article_analysis (
+        url TEXT PRIMARY KEY,
+        title TEXT, title_ko TEXT, source TEXT, published TEXT,
+        pick_reason TEXT, brief TEXT, summary_easy TEXT,
+        glossary TEXT, impacts TEXT,
+        sentiment TEXT, sentiment_reason TEXT, created TEXT)""")
+    # 키워드 -> 그날 고른 기사. 날(day)이 바뀌면 다시 고른다.
+    conn.execute("""CREATE TABLE IF NOT EXISTS search_keyword (
+        keyword TEXT, day TEXT, url TEXT,
+        range_label TEXT, candidates INTEGER, created TEXT,
+        PRIMARY KEY (keyword, day))""")
+    conn.commit()
+
+
+def _analysis_row(row):
+    d = dict(row)
+    for k in ("glossary", "impacts"):
+        try:
+            d[k] = json.loads(d[k]) if d[k] else []
+        except (ValueError, TypeError):
+            d[k] = []
+    return d
+
+
+def _save_analysis(conn, art, res):
+    conn.execute(
+        "INSERT OR REPLACE INTO article_analysis "
+        "(url, title, title_ko, source, published, pick_reason, brief, "
+        " summary_easy, glossary, impacts, sentiment, sentiment_reason, created) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'))",
+        (art["url"], art["title"], art.get("title_ko"), art["source"],
+         art["published"], res["pick_reason"], res["brief"], res["summary_easy"],
+         json.dumps(res["glossary"], ensure_ascii=False),
+         json.dumps(res["impacts"], ensure_ascii=False),
+         res["sentiment"], res["sentiment_reason"]))
+    conn.commit()
+
+
+@app.get("/api/news/pick")
+def pick_article(q: str = "", force: bool = False, redo: bool = False):
+    """검색어에 맞는 기사 1건을 AI 가 골라 분석해서 돌려준다.
+
+    분석 한 건에 1분쯤 걸린다 — 고르기 11초, 설명 32초, 기업별 영향 20초.
+    로컬 모델을 CPU 로 돌리는 값이라 줄일 수 없다. 그래서 결과를 저장해 두고,
+    자주 쓰는 단어는 아침 파이프라인에서 미리 채운다.
+
+    status:
+      ready   — 분석이 있다
+      none    — 그 단어로 찾은 기사가 없다
+      pending — 아직 분석 안 했다. force=true 로 다시 부르면 분석한다(1분)
+
+    force 는 "없으면 지금 분석해라", redo 는 "있어도 다시 분석해라".
+    프롬프트를 고쳤을 때 옛 분석이 그대로 남아 있으면 안 되므로 나눠 둔다.
+    """
+    if redo:
+        force = True
+    q = (q or "").strip()
+    if not q:
+        return {"status": "none", "query": q}
+
+    conn = get_db()
+    _ensure_tables(conn)
+    day0 = _latest_day(conn)
+
+    # 진행 중인 작업을 캐시보다 **먼저** 본다.
+    # 순서를 반대로 했더니 재분석이 도는 중에 폴링이 옛 분석을 집어
+    # "완료" 로 돌려줬다. 화면은 바뀐 줄 알지만 내용은 옛것이었다.
+    # 이미 돌고 있으면 진행 상태를 돌려준다 (화면이 몇 초마다 물어본다)
+    job = _job_state(q)
+    if job:
+        conn.close()
+        if job.get("error"):
+            with _JOBS_LOCK:
+                _JOBS.pop(q, None)
+            return {"status": "error", "query": q, "message": job["error"]}
+        return {"status": "working", "query": q,
+                "elapsed": int(time.time() - job["started"])}
+
+    # 이미 오늘 이 단어로 고른 기사가 있으면 그 분석을 그대로
+    hit = conn.execute(
+        "SELECT k.url, k.range_label, k.candidates FROM search_keyword k "
+        "WHERE k.keyword=? AND k.day=?", (q, day0)).fetchone()
+    if hit and not force:
+        row = conn.execute("SELECT * FROM article_analysis WHERE url=?",
+                           (hit["url"],)).fetchone()
+        if row:
+            conn.close()
+            return {"status": "ready", "query": q, "cached": True,
+                    "range": hit["range_label"], "candidates": hit["candidates"],
+                    **_analysis_row(row)}
+
+    found = search_news(q=q, limit=100)
+    if not found["items"]:
+        conn.close()
+        return {"status": "none", "query": q, "expanded": found["expanded"]}
+
+    cands, range_label = _candidates(found["items"], day0)
+
+    if not force:
+        conn.close()
+        return {"status": "pending", "query": q,
+                "range": range_label, "candidates": len(cands),
+                "expanded": found["expanded"]}
+
+    # 분석은 백그라운드로 던지고 바로 돌아온다. 화면이 몇 초마다 다시 물어본다.
+    rows = [{"title": i["title"], "title_ko": i["title_ko"],
+             "tickers": i["tickers"] or "", "summary": i["summary"],
+             "url": i["url"], "source": i["source"],
+             "published": i["published"]} for i in cands]
+    conn.close()
+
+    with _JOBS_LOCK:
+        _JOBS[q] = {"started": time.time(), "error": None}
+    threading.Thread(target=_run_analysis,
+                     args=(q, day0, rows, range_label, redo),
+                     daemon=True).start()
+    return {"status": "working", "query": q, "elapsed": 0,
+            "range": range_label, "candidates": len(cands)}
+
+
 @app.get("/api/daily")
 def list_daily():
+    """매일 고른 기사 목록.
+
+    daily 는 "어느 날 어느 기사를 골랐나"만 들고 있고, 내용은
+    article_analysis 에서 가져온다. 검색으로 만든 분석과 같은 테이블이라
+    오늘 기사와 검색 기사가 항상 같은 모양이 된다.
+
+    COALESCE 로 받치는 이유 — 아직 article_analysis 로 안 옮겨진 행이
+    있어도 옛 daily 컬럼으로 화면이 비지 않게.
+    """
     conn = get_db()
     try:
-        rows = conn.execute(
-            "SELECT date, url, title, source, sentiment, tickers, brief, summary_easy, glossary, pick_reason "
-            "FROM daily ORDER BY date DESC"
-        ).fetchall()
+        rows = conn.execute("""
+            SELECT d.date, d.url, d.tickers,
+                   COALESCE(a.title, d.title)               AS title,
+                   a.title_ko,
+                   COALESCE(a.source, d.source)             AS source,
+                   COALESCE(a.sentiment, d.sentiment)       AS sentiment,
+                   a.sentiment_reason,
+                   COALESCE(a.brief, d.brief)               AS brief,
+                   COALESCE(a.summary_easy, d.summary_easy) AS summary_easy,
+                   COALESCE(a.glossary, d.glossary)         AS glossary,
+                   COALESCE(a.pick_reason, d.pick_reason)   AS pick_reason,
+                   a.impacts
+            FROM daily d
+            LEFT JOIN article_analysis a ON a.url = d.url
+            ORDER BY d.date DESC""").fetchall()
     except sqlite3.OperationalError:
         conn.close()
         return []
@@ -120,10 +511,11 @@ def list_daily():
     out = []
     for r in rows:
         d = dict(r)
-        try:
-            d["glossary"] = json.loads(d["glossary"]) if d["glossary"] else []
-        except (ValueError, TypeError):
-            d["glossary"] = []
+        for k in ("glossary", "impacts"):
+            try:
+                d[k] = json.loads(d[k]) if d[k] else []
+            except (ValueError, TypeError):
+                d[k] = []
         out.append(d)
     return out
 

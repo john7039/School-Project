@@ -1,10 +1,14 @@
+[Unit]
 Description=Econ data collector
 
 [Service]
 Type=oneshot
+TimeoutStartSec=0
 User=miniserver
 WorkingDirectory=/home/miniserver/School-Project/backend
 ExecStart=-/home/miniserver/School-Project/backend/.venv/bin/python collect.py
 ExecStart=-/home/miniserver/School-Project/backend/.venv/bin/python collect_news.py
+ExecStart=-/home/miniserver/School-Project/backend/.venv/bin/python translate_titles.py 200
 ExecStart=-/home/miniserver/School-Project/backend/.venv/bin/python curate.py
 ExecStart=-/home/miniserver/School-Project/backend/.venv/bin/python company_curate.py
+ExecStart=-/home/miniserver/School-Project/backend/.venv/bin/python search_warm.py
