@@ -277,6 +277,7 @@ def _job_state(q):
 def _run_analysis(q, day0, cands, range_label, redo):
     """백그라운드에서 고르기 → 분석 → 저장까지. 실패해도 상태에 남긴다."""
     import analyze
+    started = time.time()
     try:
         with _ANALYZE_LOCK:
             conn = get_db()
@@ -294,6 +295,13 @@ def _run_analysis(q, day0, cands, range_label, redo):
                 if not res["summary_easy"]:
                     raise RuntimeError("설명 생성 실패")
                 _save_analysis(conn, art, res)
+                # 어느 쪽으로 분석했는지 로그에 남긴다. 백엔드를 재시작하지
+                # 않으면 옛 llm.py 가 메모리에 남아 외부 API 설정이 반영되지
+                # 않는데, 겉으로는 느려진 것 말고 차이가 안 보인다.
+                import llm
+                took = time.time() - started
+                print(f"  분석 완료 '{q}' — {llm.last_provider} · {took:.0f}초",
+                      flush=True)
 
             conn.execute(
                 "INSERT OR REPLACE INTO search_keyword "
@@ -362,6 +370,13 @@ def _ensure_tables(conn):
         pick_reason TEXT, brief TEXT, summary_easy TEXT,
         glossary TEXT, impacts TEXT,
         sentiment TEXT, sentiment_reason TEXT, created TEXT)""")
+    # 본문 없이 제목만으로 분석했는지. 검색으로 들어온 기사(Google 뉴스 RSS)는
+    # 제목 한 줄이 전부라, 같은 화면에 섞여 있으면 사용자가 구분할 수 없다.
+    # 어디까지 믿어도 되는지는 사용자가 판단할 몫이니 숨기지 않고 표시한다.
+    try:
+        conn.execute("ALTER TABLE article_analysis ADD COLUMN title_only INTEGER DEFAULT 0")
+    except sqlite3.OperationalError:
+        pass            # 이미 있음
     # 키워드 -> 그날 고른 기사. 날(day)이 바뀌면 다시 고른다.
     conn.execute("""CREATE TABLE IF NOT EXISTS search_keyword (
         keyword TEXT, day TEXT, url TEXT,
@@ -381,16 +396,20 @@ def _analysis_row(row):
 
 
 def _save_analysis(conn, art, res):
+    import analyze
+
     conn.execute(
         "INSERT OR REPLACE INTO article_analysis "
         "(url, title, title_ko, source, published, pick_reason, brief, "
-        " summary_easy, glossary, impacts, sentiment, sentiment_reason, created) "
-        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'))",
+        " summary_easy, glossary, impacts, sentiment, sentiment_reason, "
+        " title_only, created) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'))",
         (art["url"], art["title"], art.get("title_ko"), art["source"],
          art["published"], res["pick_reason"], res["brief"], res["summary_easy"],
          json.dumps(res["glossary"], ensure_ascii=False),
          json.dumps(res["impacts"], ensure_ascii=False),
-         res["sentiment"], res["sentiment_reason"]))
+         res["sentiment"], res["sentiment_reason"],
+         0 if analyze._has_body(art["title"], art.get("summary")) else 1))
     conn.commit()
 
 
@@ -500,7 +519,8 @@ def list_daily():
                    COALESCE(a.summary_easy, d.summary_easy) AS summary_easy,
                    COALESCE(a.glossary, d.glossary)         AS glossary,
                    COALESCE(a.pick_reason, d.pick_reason)   AS pick_reason,
-                   a.impacts
+                   a.impacts,
+                   COALESCE(a.title_only, 0)                AS title_only
             FROM daily d
             LEFT JOIN article_analysis a ON a.url = d.url
             ORDER BY d.date DESC""").fetchall()

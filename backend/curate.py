@@ -35,6 +35,10 @@ cur.execute("""CREATE TABLE IF NOT EXISTS article_analysis (
     pick_reason TEXT, brief TEXT, summary_easy TEXT,
     glossary TEXT, impacts TEXT,
     sentiment TEXT, sentiment_reason TEXT, created TEXT)""")
+try:
+    cur.execute("ALTER TABLE article_analysis ADD COLUMN title_only INTEGER DEFAULT 0")
+except sqlite3.OperationalError:
+    pass                # 이미 있음
 conn.commit()
 
 # "오늘"은 뉴스 UTC 날짜가 아니라 보는 사람(KST) 기준으로 라벨.
@@ -101,13 +105,15 @@ if not res["summary_easy"]:
 cur.execute(
     "INSERT OR REPLACE INTO article_analysis "
     "(url, title, title_ko, source, published, pick_reason, brief, "
-    " summary_easy, glossary, impacts, sentiment, sentiment_reason, created) "
-    "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'))",
+    " summary_easy, glossary, impacts, sentiment, sentiment_reason, "
+    " title_only, created) "
+    "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'))",
     (art["url"], art["title"], art["title_ko"], art["source"], art["published"],
      res["pick_reason"], res["brief"], res["summary_easy"],
      json.dumps(res["glossary"], ensure_ascii=False),
      json.dumps(res["impacts"], ensure_ascii=False),
-     res["sentiment"], res["sentiment_reason"]))
+     res["sentiment"], res["sentiment_reason"],
+     0 if analyze._has_body(art["title"], art["summary"]) else 1))
 
 cur.execute(
     "INSERT INTO daily (date, url, title, source, sentiment, tickers, brief, "

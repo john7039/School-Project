@@ -191,6 +191,16 @@ function ArticleBody({ a }) {
       {a.title_ko && <div className="m-orig">원제 · {a.title}</div>}
       <a className="src-btn" href={a.url} target="_blank" rel="noreferrer">🔗 원문 보기</a>
 
+      {/* 검색으로 들어온 기사는 Google 뉴스 RSS 가 제목만 준다. 본문 있는
+          기사와 같은 화면에 섞이면 구분할 수가 없어서, 어디까지 믿을지
+          판단할 수 있게 밝혀 둔다. */}
+      {a.title_only === 1 && (
+        <div className="m-warn">
+          제목만 수집된 기사입니다 — 본문 없이 <b>제목을 근거로</b> 분석했습니다.
+          자세한 내용은 원문을 확인해 주세요.
+        </div>
+      )}
+
       {a.brief && <><div className="sec-h">📄 한 줄 요약</div>
         <p className="m-body">{a.brief}</p></>}
 
@@ -711,6 +721,8 @@ const CSS = `
   .empty .lead { margin:0 0 4px; }
   .empty-h { font-size:.82rem; color:#8b93a1; margin:12px 0 8px; }
 
+  .m-warn { margin:10px 0 2px; padding:9px 12px; border-radius:8px; font-size:.8rem; line-height:1.55;
+            color:#d9c48a; background:#2a2415; border:1px solid #4a3f1d; }
   .livetag { display:inline-block; font-size:.68rem; color:#4ade80; background:#12351f; border-radius:20px; padding:2px 9px; margin-left:7px; vertical-align:1px; }
 
   /* 카드 겉면 기업 뱃지 · 범위 안내 · 접기 */
