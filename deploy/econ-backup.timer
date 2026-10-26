@@ -1,0 +1,12 @@
+[Unit]
+Description=Run econ DB backup daily before the morning batch
+
+[Timer]
+# 아침 배치(07:00) 직전. 배치가 DB를 망쳐도 직전 상태가 남는다.
+OnCalendar=*-*-* 06:30:00
+# VM 을 손으로 띄우는 구조라 06:30 에 꺼져 있을 수 있다.
+# 놓친 실행을 켜지는 즉시 따라잡게 한다.
+Persistent=true
+
+[Install]
+WantedBy=timers.target

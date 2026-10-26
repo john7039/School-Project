@@ -1,0 +1,18 @@
+[Unit]
+Description=Econ DB backup (VM 안 7일 + 호스트 맥 미니 30일)
+
+[Service]
+# 파일 한 벌 뜨고 끝나는 작업이라 oneshot.
+# ExecStart 앞에 하이픈을 붙이지 않는다 — 수집과 달리 실패를 숨기면
+# "조용히 백업이 멈춘" 상태를 알아차릴 방법이 없어진다.
+Type=oneshot
+User=miniserver
+WorkingDirectory=/home/miniserver/School-Project/backend
+
+# ① VM 안에 뜨고 바로 열어서 확인 (7일 보관)
+ExecStart=/home/miniserver/School-Project/backend/.venv/bin/python backup_db.py
+# ② 호스트 맥 미니로 한 벌 더 (30일 보관)
+#    /bin/bash 를 거치는 이유 — 스크립트가 홈(user_home_t)에 있어 systemd(init_t)가
+#    직접 실행할 수 없다(203/EXEC). bash(bin_t)를 실행하고 스크립트는 읽게 한다.
+#    바로 위 python 줄과 같은 구조다. chcon 으로 라벨만 바꾸면 restorecon 때 되돌아간다.
+ExecStart=/bin/bash /home/miniserver/School-Project/backend/backup_push.sh
