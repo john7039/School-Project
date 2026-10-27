@@ -26,6 +26,7 @@ DB = "/home/miniserver/School-Project/backend/econ.db"
 ENV = "/home/miniserver/School-Project/backend/.env"
 STALE_DAYS = 4            # 미국장·환율은 주말·공휴일이 있어 넉넉히 본다
 TRACKED = 7               # 추적 종목 수
+DB_LIMIT_MB = 70          # 한 달 보관이면 28MB 안팎에서 멈춘다. 넉넉히 잡은 값.
 NEWS_FLOOR = 50           # 최근 24시간 기사 수 하한 (평소 수백 건).
                           # 0 만 잡으면 "절반만 깨진" 경우를 놓친다.
 
@@ -93,6 +94,14 @@ def collect(conn, today):
 
     n_warm = q("SELECT COUNT(*) FROM search_keyword WHERE day=?", ymd)[0]
     lines.append(f"검색어 예열 · {n_warm}개")
+
+    # DB 크기를 같이 보낸다. 오래된 기사 정리(prune_news.py)가 조용히 멈추면
+    # 이 숫자가 계속 커지는 것으로 드러난다. 3주 보관이면 20MB 안팎에서 멈춘다.
+    mb = os.path.getsize(DB) / 1024 / 1024
+    lines.append(f"DB · {mb:.1f}MB · news {total_news:,}행")
+    if mb > DB_LIMIT_MB:
+        bad.append(f"DB가 {mb:.0f}MB다 (기준 {DB_LIMIT_MB}MB) — 오래된 기사 정리가 "
+                   f"멈췄는지 확인할 것")
 
     # ── 며칠 안에 있으면 되는 것 (미국장·환율) ──
     for label, table, want in (("주가", "prices", None),
