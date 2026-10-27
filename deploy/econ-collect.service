@@ -15,3 +15,9 @@ ExecStart=-/home/miniserver/School-Project/backend/.venv/bin/python translate_ti
 ExecStart=-/home/miniserver/School-Project/backend/.venv/bin/python curate.py
 ExecStart=-/home/miniserver/School-Project/backend/.venv/bin/python company_curate.py
 ExecStart=-/home/miniserver/School-Project/backend/.venv/bin/python search_warm.py
+
+# 마지막 — 오늘 무엇이 들어왔는지 휴대폰으로 보낸다.
+# 하이픈을 붙이지 않는다. 위의 수집 단계들은 하나가 깨져도 나머지를 돌려야
+# 해서 실패를 무시하지만, 이 줄이 실패하면 '알림이 안 온 것' 과 '정상이라
+# 조용한 것' 을 구분할 수 없게 된다. 실패를 드러내 OnFailure 로 넘긴다.
+ExecStart=/home/miniserver/School-Project/backend/.venv/bin/python collect_report.py
