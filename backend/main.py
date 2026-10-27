@@ -344,6 +344,28 @@ def _latest_day(conn=None):
             + datetime.timedelta(hours=9)).strftime("%Y%m%d")
 
 
+def _kst_ymd(published):
+    """UTC 로 저장된 published 를 KST 달력 날짜(YYYYMMDD)로 바꾼다.
+
+    news.published 는 UTC 다. 기준일(_latest_day)은 KST 달력 날짜다.
+    그대로 앞 8자를 비교하면 **KST 00~09시에 나온 기사가 전부 "오늘"에서
+    빠진다**. 실제로 '금리' 검색에서 오늘 기사가 UTC 기준 0건, KST 환산
+    16건으로 갈렸고, 사다리가 "최근 3일" 로 내려간 뒤 거기서 고른 기사가
+    정작 오늘 기사였다. 화면에는 "오늘 기사가 적어 최근 3일에서 골랐습니다"
+    라고 떴다.
+    """
+    s = str(published or "")
+    if len(s) < 8:
+        return ""
+    try:
+        t = datetime.datetime(int(s[:4]), int(s[4:6]), int(s[6:8]),
+                              int(s[9:11] or 0), int(s[11:13] or 0),
+                              tzinfo=datetime.timezone.utc)
+    except ValueError:
+        return s[:8]
+    return (t + datetime.timedelta(hours=9)).strftime("%Y%m%d")
+
+
 def _candidates(items, day0):
     """사다리를 올라가며 후보가 MIN_CANDIDATES 이상 되는 첫 범위를 고른다."""
     if not day0:
@@ -353,7 +375,7 @@ def _candidates(items, day0):
         if back is None:
             return items, label
         since = (base - datetime.timedelta(days=back)).strftime("%Y%m%d")
-        sub = [i for i in items if (i["published"] or "")[:8] >= since]
+        sub = [i for i in items if _kst_ymd(i["published"]) >= since]
         if len(sub) >= MIN_CANDIDATES:
             return sub, label
     return items, "전체 기간"

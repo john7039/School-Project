@@ -20,6 +20,26 @@ function dowOf(iso) {
   if (!y || !m || !d) return ''
   return DOW[new Date(y, m - 1, d).getDay()]
 }
+// news.published 는 "YYYYMMDDTHHMMSS" 이고 UTC 다. 그대로 잘라 쓰면
+// 한국 시간으로 새벽에 나온 기사가 하루 전으로 찍힌다
+// (20261026T171000 = KST 10-27 02:10). 9시간 더해 KST 달력으로 바꾼다.
+function pubLabel(published) {
+  const s = String(published || '')
+  if (s.length < 8) return null
+  const t = Date.UTC(+s.slice(0, 4), +s.slice(4, 6) - 1, +s.slice(6, 8),
+                     +(s.slice(9, 11) || 0), +(s.slice(11, 13) || 0))
+  if (Number.isNaN(t)) return null
+  const k = new Date(t + 9 * 3600 * 1000)
+  const pad = n => String(n).padStart(2, '0')
+  const iso = `${k.getUTCFullYear()}-${pad(k.getUTCMonth() + 1)}-${pad(k.getUTCDate())}`
+
+  const n = new Date(Date.now() + 9 * 3600 * 1000)
+  const todayIso = `${n.getUTCFullYear()}-${pad(n.getUTCMonth() + 1)}-${pad(n.getUTCDate())}`
+  const diff = Math.round((Date.parse(todayIso) - Date.parse(iso)) / 86400000)
+  const ago = diff <= 0 ? '오늘' : diff === 1 ? '어제' : `${diff}일 전`
+
+  return { iso, md: iso.slice(5), dow: DOW[k.getUTCDay()], ago }
+}
 function fmtVol(v) {
   if (v == null) return '-'
   if (v >= 1e8) return (v / 1e8).toFixed(1) + '억주'
@@ -187,7 +207,13 @@ function ArticleBody({ a }) {
 
   return (
     <>
-      <div className="m-sub">출처 · {a.source}</div>
+      <div className="m-sub">
+        {(() => {
+          const p = pubLabel(a.published)
+          return p ? <><b>{p.iso} ({p.dow})</b> · {p.ago} · 출처 {a.source}</>
+                   : <>출처 · {a.source}</>
+        })()}
+      </div>
       {a.title_ko && <div className="m-orig">원제 · {a.title}</div>}
       <a className="src-btn" href={a.url} target="_blank" rel="noreferrer">🔗 원문 보기</a>
 
@@ -340,19 +366,17 @@ function ArticlesTab() {
           </>}
         </div>}
 
-        {/* 범위를 밝힌다 — 오늘 기사가 적으면 넓혔다고 알려준다 */}
-        {pick && pick.range && pick.range !== '오늘' && (
-          <div className="range-note">
-            오늘 기사가 적어 <b>{pick.range}</b> 기사 {pick.candidates}건 중에서 골랐습니다
-          </div>
-        )}
-        {pick && pick.range === '오늘' && (
-          <div className="range-note">오늘 기사 {pick.candidates}건 중에서 골랐습니다</div>
-        )}
+        {/* 범위 안내 문구는 뺐다. 기사 날짜를 카드에 직접 붙이면서 중복이 됐고,
+            "오늘 기사가 적어 최근 3일에서" 라고 떠 놓고 정작 오늘 기사를 보여 주는
+            일이 있었다(사다리가 UTC 날짜를 KST 기준일과 비교하던 버그).
+            범위는 고르는 쪽 사정이고, 보는 사람이 알고 싶은 건 기사 날짜다. */}
 
         {pick && pick.status === 'ready' && (
           <ArticleCard a={pick} badge="AI 선별"
-            dateText={`‘${pick.query}’`}
+            dateText={(() => {
+              const p = pubLabel(pick.published)
+              return p ? `‘${pick.query}’ · ${p.md} (${p.dow}) ${p.ago}` : `‘${pick.query}’`
+            })()}
             onClick={() => setSel({ ...pick, date: null })} />
         )}
 
@@ -395,7 +419,7 @@ function ArticlesTab() {
             {res.items.map((a, i) => (
               <a className="art thin" key={i} href={a.url} target="_blank" rel="noreferrer">
                 <div className="atop">
-                  <span>{(a.published || '').slice(4, 6)}-{(a.published || '').slice(6, 8)}</span>
+                  <span>{(pubLabel(a.published) || {}).md || ''}</span>
                   <span className="hit">{a.matched} · {a.matched_in}</span>
                   <span className="asrc">{a.source} ↗</span>
                 </div>
@@ -736,8 +760,6 @@ const CSS = `
   .m-orig { font-size:.78rem; color:#6b7280; margin-top:3px; line-height:1.45; }
   .art.thin { padding:12px 14px; }
   .art.thin .atitle { font-size:.9rem; font-weight:600; }
-  .range-note { font-size:.8rem; color:#8b93a1; background:#161b26; border-left:2px solid #2f6b45; padding:8px 12px; border-radius:0 8px 8px 0; margin-bottom:12px; line-height:1.5; }
-  .range-note b { color:#4ade80; }
   .foldbtn { width:100%; text-align:left; background:none; border:none; border-top:1px solid #262c3a; color:#8b93a1; font:inherit; font-size:.82rem; padding:12px 2px; margin-top:14px; cursor:pointer; }
   .foldbtn:hover { color:#e6e8eb; }
   .imp-kind { font-size:.76rem; color:#6b7280; margin:10px 0 7px; }
