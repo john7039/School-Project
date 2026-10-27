@@ -1,0 +1,10 @@
+[Unit]
+Description=Run econ health check every morning
+
+[Timer]
+# 백업(06:30)과 수집 배치(07:00)가 끝난 뒤.
+OnCalendar=*-*-* 08:00:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target

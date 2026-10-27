@@ -1,0 +1,10 @@
+[Unit]
+Description=Econ daily health check (있어야 할 결과가 있는지 확인)
+# 점검이 실패하면 평소와 같은 알림 유닛이 불린다.
+OnFailure=econ-alert@%n.service
+
+[Service]
+Type=oneshot
+User=miniserver
+WorkingDirectory=/home/miniserver/School-Project/backend
+ExecStart=/bin/bash /home/miniserver/School-Project/backend/healthcheck.sh

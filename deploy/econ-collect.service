@@ -1,5 +1,8 @@
 [Unit]
 Description=Econ data collector
+# 실패하면 systemd 가 알림 유닛을 대신 실행한다.
+# %n 은 이 유닛의 전체 이름 — 템플릿의 인스턴스(%i)로 넘어간다.
+OnFailure=econ-alert@%n.service
 
 [Service]
 Type=oneshot

@@ -1,0 +1,11 @@
+[Unit]
+Description=Failure alert for %i
+# 알림이 또 실패해도 무한히 자기 자신을 부르지 않도록 OnFailure 를 걸지 않는다.
+
+[Service]
+Type=oneshot
+User=miniserver
+WorkingDirectory=/home/miniserver/School-Project/backend
+# 홈의 .sh 는 systemd(init_t)가 직접 실행할 수 없다(203/EXEC).
+# bash(bin_t)를 실행하고 스크립트는 읽게 한다. (2026-10-26 에 겪음)
+ExecStart=/bin/bash /home/miniserver/School-Project/backend/alert.sh %i
