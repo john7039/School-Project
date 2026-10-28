@@ -103,6 +103,16 @@ def collect(conn, today):
         bad.append(f"DB가 {mb:.0f}MB다 (기준 {DB_LIMIT_MB}MB) — 오래된 기사 정리가 "
                    f"멈췄는지 확인할 것")
 
+    # 점검 통과율 — 숫자를 매일 보지 않으면 쌓여도 모른다.
+    # 없으면 조용히 건너뛴다(헬스체크가 아직 한 번도 안 돌았을 수 있다).
+    try:
+        row = conn.execute(
+            "SELECT COUNT(*), COALESCE(SUM(ok),0) FROM health_log").fetchone()
+        if row and row[0]:
+            lines.append(f"점검 통과 · {row[1]}/{row[0]}일")
+    except Exception:
+        pass
+
     # ── 며칠 안에 있으면 되는 것 (미국장·환율) ──
     for label, table, want in (("주가", "prices", None),
                                ("종목 분석", "company_daily", TRACKED),

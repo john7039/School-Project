@@ -22,8 +22,10 @@ STALE_HOURS=26                # 하루 한 번 도는 작업의 허용 간격
 today=$(date +%Y%m%d)
 fail=0
 
+BAD=""
 ok()  { printf "  OK    %s\n" "$1"; }
-bad() { printf "  실패  %s\n" "$1"; fail=1; }
+bad() { printf "  실패  %s\n" "$1"; fail=1
+        BAD="${BAD:+$BAD; }$1"; }
 
 echo "점검 $(date '+%Y-%m-%d %H:%M')"
 
@@ -79,4 +81,12 @@ if [ "$fail" -eq 0 ]; then
 else
     echo "문제가 있다 — 위의 '실패' 줄 참고"
 fi
+
+# 결과를 하루 한 줄로 DB 에 남긴다. 로그는 VM 안에서 500MB 까지만 살지만,
+# econ.db 는 매일 호스트로 백업되므로 VM 이 날아가도 운영 기록은 남는다.
+# 기록이 실패해도 종료 코드는 바꾸지 않는다 — DB 쓰기 실패 때문에
+# "서버에 문제 있음" 알림이 가면 안 된다.
+/home/miniserver/School-Project/backend/.venv/bin/python \
+    /home/miniserver/School-Project/backend/health_record.py "$fail" "$BAD" || true
+
 exit "$fail"
