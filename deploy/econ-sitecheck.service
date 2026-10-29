@@ -1,0 +1,10 @@
+[Unit]
+Description=Econ site response check (밖에서 실제로 응답하는가)
+# 스크립트 자신이 깨졌을 때를 위한 안전망. 사이트 장애 알림은 스크립트가
+# 직접 보낸다 — 상태가 바뀔 때만 보내야 해서 종료 코드로는 표현할 수 없다.
+OnFailure=econ-alert@%n.service
+
+[Service]
+Type=oneshot
+User=miniserver
+ExecStart=/bin/bash /home/miniserver/School-Project/backend/sitecheck.sh

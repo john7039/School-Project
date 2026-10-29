@@ -1,0 +1,12 @@
+[Unit]
+Description=Run econ site check every 5 minutes
+
+[Timer]
+# 부팅 2분 뒤부터, 이후 5분마다. 장애를 5분 안에 알아챈다.
+OnBootSec=2min
+OnUnitActiveSec=5min
+# 여러 타이머가 같은 초에 몰리지 않게 흩뿌린다
+RandomizedDelaySec=20
+
+[Install]
+WantedBy=timers.target
