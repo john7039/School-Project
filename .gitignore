@@ -18,3 +18,6 @@ frontend/dist/
 *.bak_*
 *.log
 *.db.bak*
+
+# 위키는 별도 저장소 — 실수로 같이 커밋되지 않게
+School-Project.wiki/
