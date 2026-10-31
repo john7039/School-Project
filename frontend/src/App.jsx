@@ -589,9 +589,9 @@ function fxDir(chg) {
   return { label: '보합', cls: '' }
 }
 
-function FxPair({ title, sub, rate, chg, series, color, main }) {
+// 확정된 그날 종가 카드. 그래프는 위의 FxDay·FxTrend 가 맡는다.
+function FxPair({ title, sub, rate, chg, main }) {
   const d = fxDir(chg)
-  const asc = [...(series || [])].reverse()
   const pct = rate != null && chg != null && rate - chg ? (chg / (rate - chg)) * 100 : null
   return (
     <div className={`fxcard${main ? ' main' : ''}`}>
@@ -605,8 +605,6 @@ function FxPair({ title, sub, rate, chg, series, color, main }) {
           {chg > 0 ? '+' : ''}{chg.toFixed(2)}원{pct != null && ` (${pct > 0 ? '+' : ''}${pct.toFixed(2)}%)`}
         </span>}
       </div>
-      {asc.length >= 2 && <Chart data={asc.map(x => x.rate)} dates={asc.map(x => x.date)}
-        color={color} fmt={v => Math.round(v).toLocaleString()} />}
     </div>
   )
 }
@@ -639,15 +637,16 @@ function fxStamp(v) {
 //   · 가로 눈금에 고가·시작가·저가의 실제 원화 값을 적고
 //   · 두 축이 각각 무엇인지 그래프 아래에 쓴다
 // 선 모양만으로는 "얼마나" 움직였는지 알 수 없다.
-function DayChart({ d, color }) {
-  const pts = d.points
+function AxisChart({ pts, baseline, baseName, color, label }) {
   if (!pts || pts.length < 2) return null
   const W = 600, H = 172
   // padR 은 눈금 라벨("시작 1334.28")이 들어갈 자리다. 좁으면 글자가 잘린다.
   const padL = 8, padR = 100, padT = 14, padB = 26
 
-  // 시작가가 항상 화면에 들어오게 범위에 포함시키고, 위아래로 여유를 둔다
-  let lo = Math.min(d.low, d.open), hi = Math.max(d.high, d.open)
+  // 기준선이 항상 화면에 들어오게 범위에 포함시키고, 위아래로 여유를 둔다
+  const vals = pts.map(x => x.rate)
+  const high = Math.max(...vals), low = Math.min(...vals)
+  let lo = Math.min(low, baseline), hi = Math.max(high, baseline)
   const room = (hi - lo) * 0.14 || 0.5
   lo -= room; hi += room
   const span = hi - lo || 1
@@ -658,14 +657,14 @@ function DayChart({ d, color }) {
   const base = (H - padB).toFixed(1)
   const area = `${px(0).toFixed(1)},${base} ${line} ${px(pts.length - 1).toFixed(1)},${base}`
 
-  // 눈금은 임의의 값이 아니라 '읽을 가치가 있는 세 숫자'로 — 고가·시작가·저가.
+  // 눈금은 임의의 값이 아니라 '읽을 가치가 있는 세 숫자'로 — 고·저·기준선.
   //
   // 겹침은 값이 아니라 픽셀로 판단해야 한다. 고 1334.51 / 시작 1334.28 은
   // 0.23원 차이지만 화면에서는 8px 밖에 안 떨어져서 글자가 겹친다.
   // 고·저를 먼저 남기고(그래프의 위아래 끝이라 눈금으로서 의미가 크다),
-  // 시작가는 자리가 없으면 라벨을 접는다 — 점선과 아래 요약문에 이미 있다.
+  // 기준선은 자리가 없으면 라벨을 접는다 — 점선과 아래 요약문에 이미 있다.
   const ticks = []
-  for (const t of [{ v: d.high, name: '고' }, { v: d.low, name: '저' }, { v: d.open, name: '시작' }]) {
+  for (const t of [{ v: high, name: '고' }, { v: low, name: '저' }, { v: baseline, name: baseName }]) {
     if (ticks.every(o => Math.abs(py(o.v) - py(t.v)) >= 15)) ticks.push(t)
   }
 
@@ -674,14 +673,13 @@ function DayChart({ d, color }) {
     .filter((v, i, a) => a.indexOf(v) === i)
 
   return (
-    <svg className="daychart" viewBox={`0 0 ${W} ${H}`} role="img"
-      aria-label={`${d.day} 장 중 원/달러 움직임. 시작 ${d.open.toFixed(2)}원에서 현재 ${d.last.toFixed(2)}원`}>
-      {/* 시작가 기준선 — 라벨이 겹쳐 접히더라도 선 자체는 항상 그린다.
+    <svg className="daychart" viewBox={`0 0 ${W} ${H}`} role="img" aria-label={label}>
+      {/* 기준선 — 라벨이 겹쳐 접히더라도 선 자체는 항상 그린다.
           '오른 쪽인지 내린 쪽인지'를 한눈에 보여주는 것이 이 선의 일이다. */}
-      <line x1={padL} y1={py(d.open)} x2={W - padR} y2={py(d.open)} className="gl open" />
+      <line x1={padL} y1={py(baseline)} x2={W - padR} y2={py(baseline)} className="gl open" />
       {ticks.map(t => (
         <g key={t.name}>
-          {t.name !== '시작' &&
+          {t.name !== baseName &&
             <line x1={padL} y1={py(t.v)} x2={W - padR} y2={py(t.v)} className="gl" />}
           <text x={W - padR + 7} y={py(t.v) + 4} className="axl">{t.name} {t.v.toFixed(2)}</text>
         </g>
@@ -689,7 +687,7 @@ function DayChart({ d, color }) {
       <polygon points={area} fill={color} opacity="0.12" />
       <polyline points={line} fill="none" stroke={color} strokeWidth="2"
         vectorEffect="non-scaling-stroke" strokeLinejoin="round" strokeLinecap="round" />
-      <circle cx={px(last)} cy={py(d.last)} r="4" fill={color} stroke="#161a24" strokeWidth="1.5" />
+      <circle cx={px(last)} cy={py(vals[last])} r="4" fill={color} stroke="#161a24" strokeWidth="1.5" />
       {xi.map((ix, i) => (
         <text key={ix} x={px(ix)} y={H - 8} className="axl"
           textAnchor={i === 0 ? 'start' : ix === last ? 'end' : 'middle'}>{pts[ix].t}</text>
@@ -698,18 +696,22 @@ function DayChart({ d, color }) {
   )
 }
 
-function FxDay({ d }) {
+// 환율은 좋/나쁨이 아니라 방향이다 — 오르면 원화 약세(노랑), 내리면 강세(파랑)
+function dirColor(chg) {
+  return chg > 0 ? '#fbbf24' : chg < 0 ? '#60a5fa' : '#8b93a1'
+}
+
+function FxDay({ d, name, unit }) {
   if (!d || !d.points || d.points.length < 2) return null
-  // 환율은 좋/나쁨이 아니라 방향이다 — 오르면 원화 약세(노랑), 내리면 강세(파랑)
   const up = d.chg > 0
-  const color = up ? '#fbbf24' : d.chg < 0 ? '#60a5fa' : '#8b93a1'
   return (
     <div className="daybox">
       <p className="daycap">
-        <span><b>오늘 원/달러 움직임</b> · {d.day} · 5분마다 한 점</span>
+        <span><b>오늘 {name} 움직임</b> · {d.day} · 5분마다 한 점</span>
         <span>{d.points[0].t} ~ {d.points[d.points.length - 1].t}</span>
       </p>
-      <DayChart d={d} color={color} />
+      <AxisChart pts={d.points} baseline={d.open} baseName="시작" color={dirColor(d.chg)}
+        label={`${d.day} 장 중 ${name} 움직임. 시작 ${d.open.toFixed(2)}원에서 현재 ${d.last.toFixed(2)}원`} />
       <p className="daysum">
         시작 <b>{d.open.toFixed(2)}원</b> → 현재 <b>{d.last.toFixed(2)}원</b>
         <span className={`fxchg ${up ? 'up' : d.chg < 0 ? 'down' : ''}`}>
@@ -717,7 +719,40 @@ function FxDay({ d }) {
         </span>
         <br />하루 중 가장 높았을 때 {d.high.toFixed(2)}원 · 가장 낮았을 때 {d.low.toFixed(2)}원 · <b>변동폭 {d.span.toFixed(2)}원</b>
       </p>
-      <p className="dayaxis">가로축 = 시각(KST) · 세로축 = 1달러를 사는 데 드는 원화(원). 점선은 그날 시작가.</p>
+      <p className="dayaxis">가로축 = 시각(KST) · 세로축 = {unit}(원). 점선은 그날 시작가 — 선이 점선 위면 오른 것이다.</p>
+    </div>
+  )
+}
+
+// 최근 추이 — 하루에 점 하나. '요즘 오르는 추세인가'에 답한다.
+// 오늘 그래프와 같은 엔진을 쓰고, 점선의 의미도 같다(구간 시작값).
+function FxTrend({ series, name, unit }) {
+  if (!series || series.length < 2) return null
+  const asc = [...series].reverse()                       // API 는 최신순
+  const pts = asc.map(x => ({ t: x.date.slice(5), rate: x.rate }))
+  const base = pts[0].rate, last = pts[pts.length - 1].rate
+  const chg = last - base
+  const pct = base ? (chg / base) * 100 : null
+  const vals = pts.map(x => x.rate)
+  const up = chg > 0
+  return (
+    <div className="daybox">
+      <p className="daycap">
+        <span><b>{name} 최근 {pts.length}일</b> · 하루에 한 점(종가)</span>
+        <span>{pts[0].t} ~ {pts[pts.length - 1].t}</span>
+      </p>
+      {/* baseName 은 짧게 — 눈금 라벨 자리가 93px 뿐이라 "15일 전 1340.84" 는 넘친다.
+          점선이 무엇의 시작인지는 아래 설명문에 쓴다. */}
+      <AxisChart pts={pts} baseline={base} baseName="시작" color={dirColor(chg)}
+        label={`${name} 최근 ${pts.length}일 추이. ${base.toFixed(2)}원에서 ${last.toFixed(2)}원`} />
+      <p className="daysum">
+        {pts.length}일 전 <b>{base.toFixed(2)}원</b> → 지금 <b>{last.toFixed(2)}원</b>
+        <span className={`fxchg ${up ? 'up' : chg < 0 ? 'down' : ''}`}>
+          {up ? '+' : ''}{chg.toFixed(2)}원{pct != null && ` (${up ? '+' : ''}${pct.toFixed(2)}%)`}
+        </span>
+        <br />이 기간 가장 높았을 때 {Math.max(...vals).toFixed(2)}원 · 가장 낮았을 때 {Math.min(...vals).toFixed(2)}원
+      </p>
+      <p className="dayaxis">가로축 = 날짜(월-일) · 세로축 = {unit}(원). 점선은 {pts.length}일 전 값 — 선이 점선 위면 그때보다 오른 것이다.</p>
     </div>
   )
 }
@@ -770,23 +805,40 @@ function FxTab() {
   }, [])
   if (!fx) return <div className="panel"><p className="lead">불러오는 중…</p></div>
   const days = fx.days || []
-  const s = fx.series || {}
   const t = days[0]
+  // 오늘 그래프가 보여주는 날짜 (서버 판정). 해설 날짜와 비교하는 데 쓴다.
+  const liveDay = ((fx.intraday || {}).USDKRW || {}).day
   const past = days.slice(1)
   return (
     <div className="panel">
       <p className="lead">💱 <b>원/달러·원/유로 환율과 그 의미.</b> 환율은 한쪽만 좋은 게 아니라 <b>양면적</b>이에요 — 누구에게 유리하고 누구에게 불리한지 함께 봅니다.</p>
+      {/* ── 지금 · 오늘 ───────────────────────────────────────────
+          실시간을 붙이면서 한 화면에 시간대가 셋이 됐다(지금 / 오늘 / 확정된 하루).
+          구역을 나누지 않으면 오늘 그래프 바로 아래 어제 숫자가 붙어서
+          AI 가 틀린 것처럼 보인다. AI 해설은 15:40 에 쓰이므로 매일
+          00:00~15:40 사이에는 실제로 하루 어긋나 있다. */}
+      <div className="label">지금 · 오늘</div>
       <FxNow live={fx.live} />
-      <FxDay d={(fx.intraday || {}).USDKRW} />
+      <FxDay d={(fx.intraday || {}).USDKRW} name="원/달러" unit="1달러를 사는 데 드는 원화" />
+      <FxDay d={(fx.intraday || {}).EURKRW} name="원/유로" unit="1유로를 사는 데 드는 원화" />
+      <FxTrend series={(fx.series || {}).USDKRW} name="원/달러" unit="1달러를 사는 데 드는 원화" />
+
+      <div className="seg" />
+
+      {/* ── 확정된 하루 ─────────────────────────────────────────── */}
       {!t && <p className="lead">아직 환율 분석이 없습니다.</p>}
       {t && <>
-        <div className="label">최신 환율 · {t.date}</div>
-        <FxPair title="원/달러" sub="USD · 한국 경제에 가장 큰 영향" rate={t.usdkrw} chg={t.usdkrw_chg}
-          series={s.USDKRW} color="#60a5fa" main />
-        <FxPair title="원/유로" sub="EUR · 보조 지표" rate={t.eurkrw} chg={t.eurkrw_chg}
-          series={s.EURKRW} color="#a78bfa" />
-        <div className="sec-h">💬 이날 환율이 우리 경제에 주는 영향 (AI)</div>
+        <div className="label">{t.date} ({dowOf(t.date)}) 하루</div>
+        <p className="segnote">장이 닫힌 뒤 <b>확정된 값</b>이에요. 위쪽 <b>지금·오늘</b>과 숫자가 다를 수 있습니다.</p>
+        <FxPair title="원/달러" sub="USD · 한국 경제에 가장 큰 영향" rate={t.usdkrw} chg={t.usdkrw_chg} main />
+        <FxPair title="원/유로" sub="EUR · 보조 지표" rate={t.eurkrw} chg={t.eurkrw_chg} />
+        <div className="sec-h">💬 {t.date} 환율 분석 (AI)</div>
         <div className="ai">{t.ai_summary}</div>
+        {/* 그래프가 보여주는 날과 해설이 쓰인 날을 비교한다. 둘 다 서버가 준 값이라
+            브라우저 시간대에 영향받지 않는다. */}
+        {liveDay && liveDay !== t.date &&
+          <p className="segnote">※ <b>{liveDay}</b> 분석은 한국장 마감 뒤(15:40)에 올라옵니다.
+            확정된 종가로 분석해야 숫자가 바뀌지 않기 때문이에요.</p>}
       </>}
       {past.length > 0 && <>
         <div className="label">일자별 기록 · {past.length}건</div>
@@ -816,7 +868,7 @@ function FxTab() {
           <div className="metric"><span className="k">원/유로</span><span className="v big">{fxLine(sel.eurkrw, sel.eurkrw_chg)}</span></div>
           <div className="metric"><span className="k">방향</span><span className={`fxdir ${fxDir(sel.usdkrw_chg).cls}`}>{fxDir(sel.usdkrw_chg).label}</span></div>
         </div>
-        <div className="sec-h">💬 이날 환율이 우리 경제에 주는 영향 (AI)</div>
+        <div className="sec-h">💬 {sel.date} 환율 분석 (AI)</div>
         <div className="ai">{sel.ai_summary}</div>
       </Modal>}
       <div className="sec-h">📖 환율이 왜 중요한가</div>
@@ -1016,6 +1068,12 @@ const CSS = `
             font-variant-numeric:tabular-nums; }
   .daysum b { color:#e6e8eb; }
   .dayaxis { font-size:.68rem; color:#4b5563; line-height:1.5; margin:6px 0 0; }
+
+  /* 시간대가 다른 구역을 눈으로 가른다 — 위는 '지금·오늘', 아래는 '확정된 하루' */
+  .seg { height:1px; margin:26px 0 2px;
+         background:linear-gradient(90deg,transparent,#2b3a55 18%,#2b3a55 82%,transparent); }
+  .segnote { font-size:.74rem; color:#6b7280; line-height:1.6; margin:0 0 10px; }
+  .segnote b { color:#8b93a1; }
 
   .chartbox { background:#161a24; border:1px solid #262c3a; border-radius:12px; padding:12px 14px 8px; margin:14px 0 4px; }
   .chartcap { font-size:.72rem; color:#6b7280; margin:0 0 8px; }
