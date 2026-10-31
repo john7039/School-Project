@@ -1,5 +1,9 @@
-"""환율 날짜별 기록 백필 — fx 시계열에서 최근 N거래일의 증감·AI 분석을 생성.
-이미 fx_daily에 있는 날짜는 건너뜀(기존 보존)."""
+"""환율 날짜별 기록 백필 — fx 시계열에서 최근 N거래일의 AI 해설을 생성.
+이미 fx_daily에 있는 날짜는 건너뜀(기존 보존).
+
+⚠️ 2026-10-31 — 이 기능은 `python fx_curate.py --backfill 14` 로 흡수됐다.
+   같은 프롬프트·같은 at() 을 두 파일에 두면 한쪽만 고쳐져서 어긋난다
+   (환율 숫자 불일치 버그가 정확히 그렇게 생겼다). 이 파일은 지워도 된다."""
 import sqlite3
 from llm import generate_json
 
@@ -11,8 +15,8 @@ cur = conn.cursor()
 
 cur.execute("""CREATE TABLE IF NOT EXISTS fx_daily (
   date TEXT PRIMARY KEY,
-  usdkrw REAL, usdkrw_chg REAL,
-  eurkrw REAL, eurkrw_chg REAL,
+  summary_usdkrw REAL,      -- 해설이 본 숫자. 종가가 아니다 (fx_curate.py 설명 참고)
+  summary_eurkrw REAL,
   ai_summary TEXT
 )""")
 conn.commit()
@@ -72,8 +76,8 @@ for iso in dates:
         print(f"{iso}: 실패 ({e.__class__.__name__}) — 건너뜀")
         continue
     cur.execute(
-        "INSERT INTO fx_daily (date, usdkrw, usdkrw_chg, eurkrw, eurkrw_chg, ai_summary) VALUES (?, ?, ?, ?, ?, ?)",
-        (iso, usd, usd_chg, eur, eur_chg, summary))
+        "INSERT INTO fx_daily (date, summary_usdkrw, summary_eurkrw, ai_summary) VALUES (?, ?, ?, ?)",
+        (iso, usd, eur, summary))
     conn.commit()
     made += 1
     print(f"{iso}: 원/달러 {usd:.2f}({usd_chg:+.2f}) · 원/유로 {eur:.2f}({eur_chg:+.2f})")

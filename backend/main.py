@@ -590,20 +590,47 @@ def company(ticker: str):
 
 @app.get("/api/fx")
 def fx(days: int = 15):
-    """환율 — 날짜별 기록(값·증감·AI 분석, 최신순) + 최근 추이(그래프용)."""
+    """환율 — 날짜별 기록(값·증감·AI 분석, 최신순) + 최근 추이(그래프용).
+
+    값과 증감은 fx_daily 에 저장된 것을 쓰지 않고 fx 에서 조회 시점에 계산한다.
+
+    환율은 24시간 거래라 수집 시각(15:40)에는 그날 종가가 아직 확정되지 않는다.
+    fx 는 매일 6개월치를 다시 받아 INSERT OR REPLACE 하므로 스스로 정정되지만,
+    fx_daily 는 한 번 쓰면 다시 보지 않는다. 그래서 두 곳에 같은 숫자를 두면
+    같은 날짜에 서로 다른 값이 생긴다(2026-10-31 확인: 32일 중 13일 어긋남).
+    숫자는 fx 한 곳에만 둔다.
+    """
     conn = get_db()
     try:
-        rows = conn.execute(
-            "SELECT date, usdkrw, usdkrw_chg, eurkrw, eurkrw_chg, ai_summary "
-            "FROM fx_daily ORDER BY date DESC LIMIT ?", (days,)).fetchall()
-        series = {}
+        drows = conn.execute(
+            "SELECT date, ai_summary FROM fx_daily ORDER BY date DESC LIMIT ?",
+            (days,)).fetchall()
+        # 증감에는 '직전 거래일'이 필요해서 days 로 자르지 않고 전부 받아 둔다(쌍당 150행 수준)
+        rates = {}
         for pair in ("USDKRW", "EURKRW"):
-            srows = conn.execute(
-                "SELECT date, rate FROM fx WHERE pair=? ORDER BY date DESC LIMIT ?",
-                (pair, days)).fetchall()
-            series[pair] = [dict(r) for r in srows]
+            rates[pair] = [(r["date"], r["rate"]) for r in conn.execute(
+                "SELECT date, rate FROM fx WHERE pair=? ORDER BY date DESC", (pair,)).fetchall()]
     except sqlite3.OperationalError:
         conn.close()
         return {"days": [], "series": {}}
     conn.close()
-    return {"days": [dict(r) for r in rows], "series": series}
+
+    def at(pair, d):
+        """d일(없으면 그 이전 가장 가까운 거래일) 종가와 직전 거래일 대비 증감"""
+        seq = [x for x in rates[pair] if x[0] <= d]
+        if not seq:
+            return None, None
+        if len(seq) < 2:
+            return seq[0][1], None
+        return seq[0][1], seq[0][1] - seq[1][1]
+
+    out = []
+    for r in drows:
+        usd, usd_chg = at("USDKRW", r["date"])
+        eur, eur_chg = at("EURKRW", r["date"])
+        out.append({"date": r["date"], "ai_summary": r["ai_summary"],
+                    "usdkrw": usd, "usdkrw_chg": usd_chg,
+                    "eurkrw": eur, "eurkrw_chg": eur_chg})
+
+    series = {p: [{"date": d, "rate": v} for d, v in rows[:days]] for p, rows in rates.items()}
+    return {"days": out, "series": series}
