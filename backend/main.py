@@ -610,9 +610,14 @@ def fx(days: int = 15):
         for pair in ("USDKRW", "EURKRW"):
             rates[pair] = [(r["date"], r["rate"]) for r in conn.execute(
                 "SELECT date, rate FROM fx WHERE pair=? ORDER BY date DESC", (pair,)).fetchall()]
+        # 현재 시세. 타이머를 아직 안 깔았으면 테이블이 없을 수 있다 — 없으면 빈 채로 간다.
+        try:
+            lrows = conn.execute("SELECT * FROM fx_live").fetchall()
+        except sqlite3.OperationalError:
+            lrows = []
     except sqlite3.OperationalError:
         conn.close()
-        return {"days": [], "series": {}}
+        return {"days": [], "series": {}, "live": {}}
     conn.close()
 
     def at(pair, d):
@@ -633,4 +638,29 @@ def fx(days: int = 15):
                     "eurkrw": eur, "eurkrw_chg": eur_chg})
 
     series = {p: [{"date": d, "rate": v} for d, v in rows[:days]] for p, rows in rates.items()}
-    return {"days": out, "series": series}
+
+    # 현재 시세 — 값만 주지 않고 '언제 기준인지'를 함께 준다.
+    # yfinance 는 야후 지연 시세라 진짜 실시간이 아니고, 쌍마다 신선도가 다르다
+    # (2026-10-31 실측: 같은 순간에 받아도 달러 32분 전 / 유로 396분 전).
+    # stale_min 없이 값만 띄우면 6시간 묵은 값을 '현재'라고 보여주게 된다.
+    now = datetime.datetime.now()
+    live = {}
+    for r in lrows:
+        prev = r["prev_close"]
+        chg = (r["rate"] - prev) if (r["rate"] is not None and prev) else None
+        stale = None
+        if r["market_time"]:
+            try:
+                mt = datetime.datetime.fromisoformat(r["market_time"])
+                stale = int((now - mt).total_seconds() // 60)
+            except ValueError:
+                pass
+        live[r["pair"]] = {
+            "rate": r["rate"], "chg": chg,
+            "pct": (chg / prev * 100) if (chg is not None and prev) else None,
+            "bid": r["bid"], "ask": r["ask"],
+            "market_time": r["market_time"], "market_state": r["market_state"],
+            "fetched_at": r["fetched_at"], "stale_min": stale,
+        }
+
+    return {"days": out, "series": series, "live": live}

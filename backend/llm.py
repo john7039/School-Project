@@ -106,12 +106,31 @@ def _local(prompt, timeout):
     return json.loads(data["response"])
 
 
-def generate_json(prompt, tries=3, timeout=300):
+def generate_json(prompt, tries=3, timeout=300, prefer_local=False):
     """JSON 응답을 받아 dict 로 돌려준다.
 
-    Groq -> (실패하면) Ollama 순. 둘 다 실패하면 마지막 예외를 올린다.
+    기본은 Groq -> (실패하면) Ollama 순. 둘 다 실패하면 마지막 예외를 올린다.
+
+    prefer_local=True — 사용자가 기다리지 않는 배치용. 로컬을 먼저 쓰고,
+      로컬이 죽어 있으면 Groq 로 넘어간다.
+
+      Groq 무료 한도(분당 8,000 토큰)에서 먼저 막히는 쪽은 언제나 배치다.
+      그런데 배치는 빠를 필요가 없다 — 아침·오후에 혼자 돌고 아무도 안 기다린다.
+      정작 빨라야 하는 것은 사용자가 검색창에서 기다리는 /api/news/pick 하나다.
+      그래서 배치를 로컬로 내려 Groq 한도를 그쪽에 남겨둔다.
+
+      2026-10-31 실측(qwen2.5:7b, CPU): 환율 해설 30초 · 제목 번역 3초.
+      기사 분석 100초와 달리 프롬프트가 짧아서 로컬로도 감당이 된다.
     """
     global last_provider, _groq_blocked_until
+
+    if prefer_local:
+        try:
+            out = _local(prompt, timeout)
+            last_provider = "local"
+            return out
+        except Exception as e:
+            print(f"  로컬 실패({e.__class__.__name__}) — Groq 로 넘어간다")
 
     if GROQ_KEY and time.time() >= _groq_blocked_until:
         for attempt in range(tries):
@@ -139,7 +158,11 @@ def generate_json(prompt, tries=3, timeout=300):
                 if 400 <= e.code < 500:
                     # 모델명이 틀렸거나 키가 잘못된 것. 재시도해도 같다.
                     print(f"  Groq 설정 오류 {e.code} ({GROQ_MODEL}) — 로컬로 전환")
-                    _groq_blocked_until = time.time() + _COOLDOWN_SEC
+                    # 설정이 틀린 것이라 다시 보내도 같다. 길게 쉬고 로컬로 간다.
+                    # (2026-10-31 전까지 여기에 정의되지 않은 _COOLDOWN_SEC 이 있어서,
+                    #  정작 로컬로 넘어가야 할 때 NameError 로 그냥 실패했다.
+                    #  2026-08 에 Llama 3.3 이 사라졌을 때가 바로 이 경로다.)
+                    _groq_blocked_until = time.time() + _LONG_COOLDOWN
                     break
                 if attempt == tries - 1:
                     print(f"  Groq 오류 {e.code} — 로컬로 전환")

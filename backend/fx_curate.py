@@ -97,7 +97,11 @@ def write_day(iso, label):
         print(f"{iso}: 환율 데이터 부족 — 건너뜀")
         return False
     try:
-        summary = generate_json(build_prompt(iso, usd, usd_chg, eur, eur_chg))["ai_summary"]
+        # prefer_local — 이 스크립트는 15:40 배치라 아무도 기다리지 않는다.
+        # 로컬(qwen2.5:7b)로 30초 걸리는데, 그만큼 Groq 분당 한도를 사용자
+        # 검색(/api/news/pick)에 남겨둘 수 있다. 로컬이 죽어 있으면 Groq 로 간다.
+        summary = generate_json(build_prompt(iso, usd, usd_chg, eur, eur_chg),
+                                prefer_local=True)["ai_summary"]
     except Exception as e:
         print(f"{iso}: 실패 ({e.__class__.__name__}) — 다음 실행에서 재시도")
         return False
