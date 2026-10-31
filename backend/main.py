@@ -8,6 +8,7 @@ import time
 import datetime
 
 from search_terms import POPULAR, expand
+import fxmarket
 
 app = FastAPI()
 
@@ -615,20 +616,27 @@ def fx(days: int = 15):
             lrows = conn.execute("SELECT * FROM fx_live").fetchall()
         except sqlite3.OperationalError:
             lrows = []
-        # 장 중 5분봉 — '오늘 얼마나 올랐다 내렸나'. 가장 최근 날짜 하루치만 보낸다.
-        # period=1d 로 받은 봉이 자정을 넘어 이틀에 걸쳐 있으므로 날짜로 잘라야 한다.
-        # 휴장이면 '마지막 장이 열린 날'이 나온다 — 그게 맞는 화면이다.
+        # 장 중 5분봉 — '오늘 얼마나 올랐다 내렸나'.
+        #
+        # ⚠️ 환율의 하루는 자정이 아니라 **세션**이다 — 서울외환시장 원/달러는
+        #    09:00 ~ 다음날 02:00 (2024-07-01 연장). 자정으로 자르면 "오늘
+        #    00:00~07:00" 이라고 띄운 그래프가 실은 어제 세션의 꼬리토막이 된다.
+        #    자세한 건 fxmarket.py 주석.
         intr = {}
         try:
+            d0 = datetime.date.fromisoformat(fxmarket.current_session_day())
             for pair in ("USDKRW", "EURKRW"):
-                day = conn.execute(
-                    "SELECT max(substr(ts,1,10)) FROM fx_intraday WHERE pair=?",
-                    (pair,)).fetchone()[0]
-                if not day:
-                    continue
-                intr[pair] = (day, conn.execute(
-                    "SELECT ts, rate FROM fx_intraday WHERE pair=? AND ts LIKE ? ORDER BY ts",
-                    (pair, day + "%")).fetchall())
+                # 후보 세션이 비어 있으면(휴장·수집 공백) 최근 세션으로 거슬러 올라간다
+                for back in range(8):
+                    day = (d0 - datetime.timedelta(days=back)).isoformat()
+                    lo, hi = fxmarket.session_bounds(day)
+                    bars = conn.execute(
+                        "SELECT ts, rate FROM fx_intraday "
+                        "WHERE pair=? AND ts>=? AND ts<? ORDER BY ts",
+                        (pair, lo, hi)).fetchall()
+                    if len(bars) >= 2:
+                        intr[pair] = (day, lo, hi, bars)
+                        break
         except sqlite3.OperationalError:
             intr = {}
     except sqlite3.OperationalError:
@@ -683,14 +691,18 @@ def fx(days: int = 15):
     # 시작가·고가·저가를 함께 주는 이유: 선만 그리면 자동 스케일 때문에
     # 0.2% 움직임도 산맥처럼 보인다. 숫자가 같이 있어야 폭을 읽을 수 있다.
     intraday = {}
-    for pair, (day, bars) in intr.items():
+    for pair, (day, lo, hi, bars) in intr.items():
         pts = [{"t": b["ts"][11:16], "rate": b["rate"]} for b in bars]
         if len(pts) < 2:
             continue
         vals = [x["rate"] for x in pts]
         first, last = vals[0], vals[-1]
         intraday[pair] = {
-            "day": day, "points": pts,
+            "day": day,
+            # 세션 창을 문장으로 같이 보낸다 — 자정을 넘으므로 화면에 그대로 써야
+            # "09:00 → 01:55" 라는 시각 라벨이 헷갈리지 않는다
+            "session": f"{lo[5:10]} {lo[11:16]} ~ {hi[5:10]} {hi[11:16]}",
+            "open_at": lo[11:16], "points": pts,
             "open": first, "last": last, "high": max(vals), "low": min(vals),
             "chg": last - first,
             "pct": ((last - first) / first * 100) if first else None,

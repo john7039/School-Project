@@ -707,19 +707,22 @@ function FxDay({ d, name, unit }) {
   return (
     <div className="daybox">
       <p className="daycap">
-        <span><b>오늘 {name} 움직임</b> · {d.day} · 5분마다 한 점</span>
-        <span>{d.points[0].t} ~ {d.points[d.points.length - 1].t}</span>
+        <span><b>{name} 장중 움직임</b> · 5분마다 한 점</span>
+        {/* 세션은 09:00 에 열려 다음날 02:00 에 닫히므로 자정을 넘어간다.
+            창을 그대로 적어줘야 "09:00 ~ 01:55" 라는 시각 라벨이 안 헷갈린다. */}
+        <span>{d.session}</span>
       </p>
-      <AxisChart pts={d.points} baseline={d.open} baseName="시작" color={dirColor(d.chg)}
-        label={`${d.day} 장 중 ${name} 움직임. 시작 ${d.open.toFixed(2)}원에서 현재 ${d.last.toFixed(2)}원`} />
+      <AxisChart pts={d.points} baseline={d.open} baseName="개장" color={dirColor(d.chg)}
+        label={`${d.day} 장중 ${name} 움직임. 개장 ${d.open.toFixed(2)}원에서 ${d.last.toFixed(2)}원`} />
       <p className="daysum">
-        시작 <b>{d.open.toFixed(2)}원</b> → 현재 <b>{d.last.toFixed(2)}원</b>
+        {d.open_at || '09:00'} 개장 <b>{d.open.toFixed(2)}원</b> → <b>{d.last.toFixed(2)}원</b>
         <span className={`fxchg ${up ? 'up' : d.chg < 0 ? 'down' : ''}`}>
           {up ? '+' : ''}{d.chg.toFixed(2)}원{d.pct != null && ` (${up ? '+' : ''}${d.pct.toFixed(2)}%)`}
         </span>
-        <br />하루 중 가장 높았을 때 {d.high.toFixed(2)}원 · 가장 낮았을 때 {d.low.toFixed(2)}원 · <b>변동폭 {d.span.toFixed(2)}원</b>
+        <br />이 장중 가장 높았을 때 {d.high.toFixed(2)}원 · 가장 낮았을 때 {d.low.toFixed(2)}원 · <b>변동폭 {d.span.toFixed(2)}원</b>
       </p>
-      <p className="dayaxis">가로축 = 시각(KST) · 세로축 = {unit}(원). 점선은 그날 시작가 — 선이 점선 위면 오른 것이다.</p>
+      <p className="dayaxis">가로축 = 시각(KST). 서울외환시장은 <b>09:00 에 열려 다음날 02:00 에 닫혀서</b> 자정을 넘어갑니다.
+        세로축 = {unit}(원). 점선은 개장가 — 선이 점선 위면 개장보다 오른 것이에요.</p>
     </div>
   )
 }
@@ -752,7 +755,7 @@ function FxTrend({ series, name, unit }) {
         </span>
         <br />이 기간 가장 높았을 때 {Math.max(...vals).toFixed(2)}원 · 가장 낮았을 때 {Math.min(...vals).toFixed(2)}원
       </p>
-      <p className="dayaxis">가로축 = 날짜(월-일) · 세로축 = {unit}(원). 점선은 {pts.length}일 전 값 — 선이 점선 위면 그때보다 오른 것이다.</p>
+      <p className="dayaxis">가로축 = 날짜(월-일) · 세로축 = {unit}(원). 점선은 {pts.length}일 전 값 — 선이 점선 위면 그때보다 오른 것이에요.</p>
     </div>
   )
 }
@@ -817,7 +820,7 @@ function FxTab() {
           구역을 나누지 않으면 오늘 그래프 바로 아래 어제 숫자가 붙어서
           AI 가 틀린 것처럼 보인다. AI 해설은 15:40 에 쓰이므로 매일
           00:00~15:40 사이에는 실제로 하루 어긋나 있다. */}
-      <div className="label">지금 · 오늘</div>
+      <div className="label">지금 · 장중</div>
       <FxNow live={fx.live} />
       <FxDay d={(fx.intraday || {}).USDKRW} name="원/달러" unit="1달러를 사는 데 드는 원화" />
       <FxDay d={(fx.intraday || {}).EURKRW} name="원/유로" unit="1유로를 사는 데 드는 원화" />

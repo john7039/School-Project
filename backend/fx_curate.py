@@ -26,6 +26,7 @@ import re
 import sqlite3
 import sys
 
+from fxmarket import session_bounds
 from llm import generate_json
 
 # 해설이 본 숫자와 fx 의 종가가 이만큼 넘게 벌어지면 다시 쓴다.
@@ -69,9 +70,15 @@ def at(pair, d):
 
 
 def intraday_stats(pair, d):
-    """그날 5분봉에서 시작·고·저·끝을 뽑는다. 봉이 없으면 None."""
-    rows = cur.execute("SELECT rate FROM fx_intraday WHERE pair=? AND ts LIKE ? ORDER BY ts",
-                       (pair, d + "%")).fetchall()
+    """d 세션(09:00~다음날 02:00) 5분봉에서 시작·고·저를 뽑는다. 봉이 없으면 None.
+
+    화면 그래프(/api/fx)와 **같은 창**을 봐야 한다. 창이 다르면 해설의 고·저가
+    그래프의 고·저와 다른 숫자가 된다 — 숫자가 두 곳에 생기는 그 문제다.
+    그래서 세션 계산은 fxmarket 한 곳에만 둔다.
+    """
+    lo, hi = session_bounds(d)
+    rows = cur.execute("SELECT rate FROM fx_intraday WHERE pair=? AND ts>=? AND ts<? ORDER BY ts",
+                       (pair, lo, hi)).fetchall()
     if len(rows) < 3:
         return None
     v = [r["rate"] for r in rows]
@@ -131,7 +138,7 @@ def build_prompt(iso, usd, usd_chg, eur, eur_chg, day=None):
         span_pct = (span / day["open"] * 100) if day["open"] else 0
         inside = (f"""
 - 하루 안의 움직임 (5분봉 {day['n']}개)
-  시작 {day['open']:.2f}원 → 끝 {usd:.2f}원
+  09:00 개장 {day['open']:.2f}원 → 끝 {usd:.2f}원
   가장 높았을 때 {hi:.2f}원 / 가장 낮았을 때 {lo:.2f}원
   변동폭 {span:.2f}원 ({span_pct:.2f}%)
   하루 모양: {day_shape(day['open'], hi, lo, usd)}""")
