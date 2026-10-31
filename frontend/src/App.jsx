@@ -617,10 +617,157 @@ function fxLine(rate, chg) {
   return `${rate.toFixed(2)}원 ${chg != null ? `(${sign}${chg.toFixed(2)})` : ''}`
 }
 
+// 현재 시세의 '언제 기준인지'를 한 줄로.
+//
+// 값만 띄우면 거짓말이 된다. yfinance 는 야후 지연 시세이고, 쌍마다 신선도가
+// 다르다 — 2026-10-31 실측으로 같은 순간에 받아도 달러는 32분 전, 유로는 396분
+// 전 값이었다. 6시간 묵은 값을 '현재'라고 보여주지 않으려고 시각을 같이 쓴다.
+function fxStamp(v) {
+  const mt = v.market_time || ''
+  if (!mt) return null
+  const when = `${mt.slice(5, 10)} ${mt.slice(11, 16)} 기준`
+  if (v.market_state !== 'REGULAR') return { text: `${when} · 장 마감`, warn: false }
+  if (v.stale_min != null && v.stale_min > 30) return { text: `${when} · ${v.stale_min}분 전 값`, warn: true }
+  return { text: when, warn: false }
+}
+
+// 오늘 하루 움직임 — 장 중 5분봉.
+//
+// 축을 반드시 적는다. 자동 스케일이라 보이는 구간의 최소~최대가 세로를 꽉 채우는데,
+// 오늘처럼 0.06% 움직인 날도 그러면 산맥처럼 보인다. 그래서
+//   · 시작가를 점선 기준선으로 그려서 '오른 쪽/내린 쪽'이 한눈에 보이게 하고
+//   · 가로 눈금에 고가·시작가·저가의 실제 원화 값을 적고
+//   · 두 축이 각각 무엇인지 그래프 아래에 쓴다
+// 선 모양만으로는 "얼마나" 움직였는지 알 수 없다.
+function DayChart({ d, color }) {
+  const pts = d.points
+  if (!pts || pts.length < 2) return null
+  const W = 600, H = 172
+  // padR 은 눈금 라벨("시작 1334.28")이 들어갈 자리다. 좁으면 글자가 잘린다.
+  const padL = 8, padR = 100, padT = 14, padB = 26
+
+  // 시작가가 항상 화면에 들어오게 범위에 포함시키고, 위아래로 여유를 둔다
+  let lo = Math.min(d.low, d.open), hi = Math.max(d.high, d.open)
+  const room = (hi - lo) * 0.14 || 0.5
+  lo -= room; hi += room
+  const span = hi - lo || 1
+
+  const px = i => padL + (i / (pts.length - 1)) * (W - padL - padR)
+  const py = v => padT + (1 - (v - lo) / span) * (H - padT - padB)
+  const line = pts.map((x, i) => `${px(i).toFixed(1)},${py(x.rate).toFixed(1)}`).join(' ')
+  const base = (H - padB).toFixed(1)
+  const area = `${px(0).toFixed(1)},${base} ${line} ${px(pts.length - 1).toFixed(1)},${base}`
+
+  // 눈금은 임의의 값이 아니라 '읽을 가치가 있는 세 숫자'로 — 고가·시작가·저가.
+  //
+  // 겹침은 값이 아니라 픽셀로 판단해야 한다. 고 1334.51 / 시작 1334.28 은
+  // 0.23원 차이지만 화면에서는 8px 밖에 안 떨어져서 글자가 겹친다.
+  // 고·저를 먼저 남기고(그래프의 위아래 끝이라 눈금으로서 의미가 크다),
+  // 시작가는 자리가 없으면 라벨을 접는다 — 점선과 아래 요약문에 이미 있다.
+  const ticks = []
+  for (const t of [{ v: d.high, name: '고' }, { v: d.low, name: '저' }, { v: d.open, name: '시작' }]) {
+    if (ticks.every(o => Math.abs(py(o.v) - py(t.v)) >= 15)) ticks.push(t)
+  }
+
+  const last = pts.length - 1
+  const xi = [0, Math.round(last / 3), Math.round(last * 2 / 3), last]
+    .filter((v, i, a) => a.indexOf(v) === i)
+
+  return (
+    <svg className="daychart" viewBox={`0 0 ${W} ${H}`} role="img"
+      aria-label={`${d.day} 장 중 원/달러 움직임. 시작 ${d.open.toFixed(2)}원에서 현재 ${d.last.toFixed(2)}원`}>
+      {/* 시작가 기준선 — 라벨이 겹쳐 접히더라도 선 자체는 항상 그린다.
+          '오른 쪽인지 내린 쪽인지'를 한눈에 보여주는 것이 이 선의 일이다. */}
+      <line x1={padL} y1={py(d.open)} x2={W - padR} y2={py(d.open)} className="gl open" />
+      {ticks.map(t => (
+        <g key={t.name}>
+          {t.name !== '시작' &&
+            <line x1={padL} y1={py(t.v)} x2={W - padR} y2={py(t.v)} className="gl" />}
+          <text x={W - padR + 7} y={py(t.v) + 4} className="axl">{t.name} {t.v.toFixed(2)}</text>
+        </g>
+      ))}
+      <polygon points={area} fill={color} opacity="0.12" />
+      <polyline points={line} fill="none" stroke={color} strokeWidth="2"
+        vectorEffect="non-scaling-stroke" strokeLinejoin="round" strokeLinecap="round" />
+      <circle cx={px(last)} cy={py(d.last)} r="4" fill={color} stroke="#161a24" strokeWidth="1.5" />
+      {xi.map((ix, i) => (
+        <text key={ix} x={px(ix)} y={H - 8} className="axl"
+          textAnchor={i === 0 ? 'start' : ix === last ? 'end' : 'middle'}>{pts[ix].t}</text>
+      ))}
+    </svg>
+  )
+}
+
+function FxDay({ d }) {
+  if (!d || !d.points || d.points.length < 2) return null
+  // 환율은 좋/나쁨이 아니라 방향이다 — 오르면 원화 약세(노랑), 내리면 강세(파랑)
+  const up = d.chg > 0
+  const color = up ? '#fbbf24' : d.chg < 0 ? '#60a5fa' : '#8b93a1'
+  return (
+    <div className="daybox">
+      <p className="daycap">
+        <span><b>오늘 원/달러 움직임</b> · {d.day} · 5분마다 한 점</span>
+        <span>{d.points[0].t} ~ {d.points[d.points.length - 1].t}</span>
+      </p>
+      <DayChart d={d} color={color} />
+      <p className="daysum">
+        시작 <b>{d.open.toFixed(2)}원</b> → 현재 <b>{d.last.toFixed(2)}원</b>
+        <span className={`fxchg ${up ? 'up' : d.chg < 0 ? 'down' : ''}`}>
+          {up ? '+' : ''}{d.chg.toFixed(2)}원{d.pct != null && ` (${up ? '+' : ''}${d.pct.toFixed(2)}%)`}
+        </span>
+        <br />하루 중 가장 높았을 때 {d.high.toFixed(2)}원 · 가장 낮았을 때 {d.low.toFixed(2)}원 · <b>변동폭 {d.span.toFixed(2)}원</b>
+      </p>
+      <p className="dayaxis">가로축 = 시각(KST) · 세로축 = 1달러를 사는 데 드는 원화(원). 점선은 그날 시작가.</p>
+    </div>
+  )
+}
+
+function FxNow({ live }) {
+  const rows = [['USDKRW', '원/달러'], ['EURKRW', '원/유로']]
+    .map(([k, label]) => [label, (live || {})[k]])
+    .filter(([, v]) => v && v.rate != null)
+  if (!rows.length) return null
+  return (
+    <div className="fxnow">
+      <div className="fxnow-top">
+        <span className="fxnow-t">지금 환율</span>
+        <span className="fxnow-sub">야후 지연 시세 · 5분마다 갱신</span>
+      </div>
+      {rows.map(([label, v]) => {
+        const st = fxStamp(v)
+        return (
+          <div className="fxnow-row" key={label}>
+            <span className="fxnow-k">{label}</span>
+            <span className="fxnow-v">{v.rate.toFixed(2)}<span className="won">원</span></span>
+            {v.chg != null && <span className={`fxchg ${v.chg > 0 ? 'up' : v.chg < 0 ? 'down' : ''}`}>
+              {v.chg > 0 ? '+' : ''}{v.chg.toFixed(2)}원{v.pct != null && ` (${v.pct > 0 ? '+' : ''}${v.pct.toFixed(2)}%)`}
+            </span>}
+            {st && <span className={`fxnow-when${st.warn ? ' warn' : ''}`}>{st.text}</span>}
+          </div>
+        )
+      })}
+      <p className="fxnow-note"><b>전일 종가 대비</b>입니다. 아래 <b>일자별 기록</b>은 장이 닫힌 뒤 확정된 종가예요 — 그래서 숫자가 다를 수 있습니다.</p>
+    </div>
+  )
+}
+
 function FxTab() {
   const [fx, setFx] = useState(null)
   const [sel, setSel] = useState(null)
-  useEffect(() => { fetch(`${API}/api/fx`).then(r => r.json()).then(setFx).catch(() => setFx({ days: [], series: {} })) }, [])
+  // 현재 시세가 5분마다 갱신되므로 화면도 주기적으로 다시 받아온다.
+  // 새로고침을 눌러야 최신이 보이면 '실시간'이라고 할 수 없다.
+  //
+  // 폴링이 실패하면 화면을 비우지 않고 직전 값을 그대로 둔다. 네트워크가
+  // 한 번 끊겼다고 보던 내용이 사라지면 고장으로 보인다.
+  useEffect(() => {
+    let alive = true
+    const load = () => fetch(`${API}/api/fx`).then(r => r.json())
+      .then(d => { if (alive) setFx(d) })
+      .catch(() => { if (alive) setFx(prev => prev || { days: [], series: {}, live: {}, intraday: {} }) })
+    load()
+    const id = setInterval(load, 60000)
+    return () => { alive = false; clearInterval(id) }
+  }, [])
   if (!fx) return <div className="panel"><p className="lead">불러오는 중…</p></div>
   const days = fx.days || []
   const s = fx.series || {}
@@ -629,6 +776,8 @@ function FxTab() {
   return (
     <div className="panel">
       <p className="lead">💱 <b>원/달러·원/유로 환율과 그 의미.</b> 환율은 한쪽만 좋은 게 아니라 <b>양면적</b>이에요 — 누구에게 유리하고 누구에게 불리한지 함께 봅니다.</p>
+      <FxNow live={fx.live} />
+      <FxDay d={(fx.intraday || {}).USDKRW} />
       {!t && <p className="lead">아직 환율 분석이 없습니다.</p>}
       {t && <>
         <div className="label">최신 환율 · {t.date}</div>
@@ -836,6 +985,37 @@ const CSS = `
   .fxedu p { margin:0 0 10px; } .fxedu ul { margin:0 0 10px; padding-left:18px; }
   .fxedu li { margin-bottom:7px; } .fxedu b { color:#e6e8eb; }
   .fxnote { font-size:.82rem; color:#8b93a1; margin-bottom:6px !important; }
+
+  /* 지금 환율 — 확정 종가 카드와 구별되게 테두리를 파랗게 */
+  .fxnow { background:linear-gradient(180deg,#131b2a 0%,#161a24 70%); border:1px solid #2b3a55;
+           border-radius:13px; padding:13px 16px 11px; margin:4px 0 2px; }
+  .fxnow-top { display:flex; align-items:baseline; justify-content:space-between; gap:10px;
+               flex-wrap:wrap; margin-bottom:7px; }
+  .fxnow-t { font-size:.78rem; font-weight:700; letter-spacing:.04em; color:#93c5fd; }
+  .fxnow-sub { font-size:.68rem; color:#6b7280; }
+  .fxnow-row { display:flex; align-items:baseline; gap:9px; flex-wrap:wrap; padding:5px 0; }
+  .fxnow-k { font-size:.72rem; color:#6b7280; min-width:52px; }
+  .fxnow-v { font-size:1.22rem; font-weight:700; font-variant-numeric:tabular-nums; }
+  .fxnow-v .won { font-size:.8rem; font-weight:600; color:#8b93a1; margin-left:2px; }
+  .fxnow-when { font-size:.68rem; color:#6b7280; margin-left:auto; white-space:nowrap; }
+  .fxnow-when.warn { color:#fbbf24; }
+  .fxnow-note { font-size:.72rem; color:#6b7280; line-height:1.55; margin:8px 0 0; }
+  .fxnow-note b { color:#8b93a1; }
+
+  /* 오늘 움직임 그래프 */
+  .daybox { background:#161a24; border:1px solid #262c3a; border-radius:12px;
+            padding:12px 14px 10px; margin:10px 0 2px; }
+  .daycap { font-size:.72rem; color:#6b7280; margin:0 0 6px;
+            display:flex; justify-content:space-between; gap:10px; flex-wrap:wrap; }
+  .daycap b { color:#c4cad4; }
+  .daychart { width:100%; height:auto; display:block; }
+  .daychart .gl { stroke:#262c3a; stroke-width:1; }
+  .daychart .gl.open { stroke:#4b5563; stroke-dasharray:4 4; }   /* 시작가 기준선 */
+  .daychart .axl { font-size:12px; fill:#6b7280; font-variant-numeric:tabular-nums; }
+  .daysum { font-size:.78rem; color:#8b93a1; line-height:1.75; margin:8px 0 0;
+            font-variant-numeric:tabular-nums; }
+  .daysum b { color:#e6e8eb; }
+  .dayaxis { font-size:.68rem; color:#4b5563; line-height:1.5; margin:6px 0 0; }
 
   .chartbox { background:#161a24; border:1px solid #262c3a; border-radius:12px; padding:12px 14px 8px; margin:14px 0 4px; }
   .chartcap { font-size:.72rem; color:#6b7280; margin:0 0 8px; }

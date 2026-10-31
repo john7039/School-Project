@@ -615,9 +615,25 @@ def fx(days: int = 15):
             lrows = conn.execute("SELECT * FROM fx_live").fetchall()
         except sqlite3.OperationalError:
             lrows = []
+        # 장 중 5분봉 — '오늘 얼마나 올랐다 내렸나'. 가장 최근 날짜 하루치만 보낸다.
+        # period=1d 로 받은 봉이 자정을 넘어 이틀에 걸쳐 있으므로 날짜로 잘라야 한다.
+        # 휴장이면 '마지막 장이 열린 날'이 나온다 — 그게 맞는 화면이다.
+        intr = {}
+        try:
+            for pair in ("USDKRW", "EURKRW"):
+                day = conn.execute(
+                    "SELECT max(substr(ts,1,10)) FROM fx_intraday WHERE pair=?",
+                    (pair,)).fetchone()[0]
+                if not day:
+                    continue
+                intr[pair] = (day, conn.execute(
+                    "SELECT ts, rate FROM fx_intraday WHERE pair=? AND ts LIKE ? ORDER BY ts",
+                    (pair, day + "%")).fetchall())
+        except sqlite3.OperationalError:
+            intr = {}
     except sqlite3.OperationalError:
         conn.close()
-        return {"days": [], "series": {}, "live": {}}
+        return {"days": [], "series": {}, "live": {}, "intraday": {}}
     conn.close()
 
     def at(pair, d):
@@ -663,4 +679,22 @@ def fx(days: int = 15):
             "fetched_at": r["fetched_at"], "stale_min": stale,
         }
 
-    return {"days": out, "series": series, "live": live}
+    # 장 중 움직임 — 그래프용 점들과, 그래프 축에 쓸 기준값들.
+    # 시작가·고가·저가를 함께 주는 이유: 선만 그리면 자동 스케일 때문에
+    # 0.2% 움직임도 산맥처럼 보인다. 숫자가 같이 있어야 폭을 읽을 수 있다.
+    intraday = {}
+    for pair, (day, bars) in intr.items():
+        pts = [{"t": b["ts"][11:16], "rate": b["rate"]} for b in bars]
+        if len(pts) < 2:
+            continue
+        vals = [x["rate"] for x in pts]
+        first, last = vals[0], vals[-1]
+        intraday[pair] = {
+            "day": day, "points": pts,
+            "open": first, "last": last, "high": max(vals), "low": min(vals),
+            "chg": last - first,
+            "pct": ((last - first) / first * 100) if first else None,
+            "span": max(vals) - min(vals),
+        }
+
+    return {"days": out, "series": series, "live": live, "intraday": intraday}
