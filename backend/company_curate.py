@@ -58,13 +58,30 @@ for t in TICKERS:
                 else "하락 + 거래 → 매도세" if change < -0.5
                 else "보합")
 
-        prompt = f"""{NAMES[t]}({t})의 {date} 주식 상황이다.
-종가 {close}, 전일 대비 {change}%, 거래량 {volume}. (추정 흐름: {flow})
+        # 거래량을 '많다/적다' 로 말하려면 비교 기준이 필요하다.
+        # 숫자만 주면 모델이 "거래량이 크게 늘어나면서" 라고 지어낸다.
+        avg = cur.execute(
+            "SELECT AVG(volume) a FROM (SELECT volume FROM prices "
+            "WHERE ticker=? AND date<? AND volume IS NOT NULL "
+            "ORDER BY date DESC LIMIT 20)", (t, date)).fetchone()["a"]
+        vol_txt = f"거래량 {volume:,}" if volume else "거래량 미확인"
+        if volume and avg:
+            r = volume / avg
+            word = ("평소보다 많다" if r >= 1.5 else
+                    "평소보다 약간 많다" if r >= 1.15 else
+                    "평소보다 적다" if r <= 0.67 else
+                    "평소보다 약간 적다" if r <= 0.87 else "평소와 비슷하다")
+            vol_txt += f" (최근 20거래일 평균의 {r:.1f}배 — {word})"
+
+        prompt = f"""{NAMES[t]}({t})의 {date} 주식 상황이다. 미국 상장 종목이고 금액 단위는 달러다.
+종가 {close}달러, 전일 대비 {change}%, {vol_txt}. (추정 흐름: {flow})
 관련 뉴스(번호순):
 {news_numbered}
 
 경제 초보자에게 "오늘 이 회사가 어땠는지"를 2~3문장으로 쉽게 설명하라.
 매수세/매도세는 거래량과 등락으로 추정해 표현하고, 뉴스가 있으면 왜 그렇게 움직였는지 연결하라.
+**거래량이 많다/적다는 위에 적힌 비교만 근거로 쓰고, 비교가 없으면 거래량의 많고 적음을 언급하지 마라.**
+**금액 단위는 달러다. 절대 '원' 으로 쓰지 마라 — 미국 주식이다.**
 또한 위 뉴스 각각이 이 회사(주가)에 주는 영향을 분류하라. 판단 기준:
 - 유리한 소식(실적 호조, 성장·수요 증가, 호재, 파트너십, 신제품 등) → '긍정'
 - 불리한 소식(실적 부진, 규제·소송·악재, 수요 둔화, 경쟁 심화 등) → '부정'
@@ -80,6 +97,12 @@ for t in TICKERS:
         except Exception as e:
             print(f"{t} {date}: 실패 ({e.__class__.__name__}) — 다음 실행에서 재시도")
             continue
+
+        # 프롬프트 규칙을 어기는 때가 있다. 과거 218건 중 1건이 '원' 으로 썼다.
+        from stockbrief import fix_currency
+        summary, fixed = fix_currency(summary)
+        if fixed:
+            print(f"  {t} {date}: 금액을 '원' 으로 쓴 것을 '달러' 로 고쳤다")
 
         sents = data.get("news_sentiments", {})
 
