@@ -533,6 +533,32 @@ function QuoteCard({ q, ticker, name, volNote }) {
   )
 }
 
+// 하루 안의 움직임. 미 동부 시각으로 그린다 — 한국 시각으로 바꾸면
+// 23:30 에 시작해 다음날 06:00 에 끝나서 '하루' 로 읽히지 않는다.
+function StockDay({ d, ticker }) {
+  if (!d || !d.points || d.points.length < 2) return null
+  const pts = d.points.map(p => ({ t: p.t, rate: p.price }))
+  const up = d.chg > 0, down = d.chg < 0
+  return (
+    <div className="chartbox">
+      <div className="dayhead">
+        <span className="daylabel">{d.session} 장</span>
+        <span className={`qchg ${up ? 'up' : down ? 'down' : ''}`}>
+          시작 대비 {up ? '▲' : down ? '▼' : '▬'} {Math.abs(d.chg).toFixed(2)}
+          {d.pct != null && <> ({d.pct > 0 ? '+' : ''}{d.pct}%)</>}
+        </span>
+      </div>
+      <AxisChart pts={pts} baseline={d.open} baseName="시작"
+        color={up ? '#4ade80' : down ? '#f87171' : '#8b93a1'}
+        label={`${ticker} ${d.session} 장중 5분 단위 주가`} />
+      <p className="chartcap">
+        {d.open_at}에 열고 {d.close_at}에 닫은 장 ({d.tz} 시각).
+        한국 시각으로는 밤 11시 30분부터 다음날 아침 6시까지예요.
+      </p>
+    </div>
+  )
+}
+
 function StocksTab() {
   const [q, setQ] = useState('')
   const [found, setFound] = useState(null)
@@ -587,7 +613,7 @@ function StocksTab() {
 
   return (
     <div className="panel">
-      <p className="lead">📈 <b>종목 이름만 알면 됩니다.</b> 현재 수치와 52주 위치를 바로 보여주고, AI가 그 종목의 상황을 쉽게 풀어줘요.</p>
+      <p className="lead">📈 <b>종목을 찾아 그날 상황을 봅니다.</b> 주가와 거래량, 1년 중 지금 위치를 보여주고 AI가 왜 움직였는지 설명해요.</p>
 
       <div className="search">
         <div className="search-row">
@@ -611,14 +637,14 @@ function StocksTab() {
       {found?.status === 'none' && (
         <div className="empty">
           <p className="lead">
-            &lsquo;{found.query}&rsquo; 를 종목으로 알아보지 못했습니다.
-            {found.hangul && <><br />미국 상장 종목만 다루고 있어요. 국내 종목은 아직 지원하지 않습니다.</>}
+            &lsquo;{found.query}&rsquo; 가 어느 종목인지 몰랐어요.
+            {found.hangul && <><br />지금은 미국에 상장된 종목만 찾을 수 있어요.</>}
           </p>
         </div>
       )}
       {found?.status === 'notfound' && (
         <div className="empty">
-          <p className="lead">&lsquo;{found.ticker}&rsquo; 라는 종목을 찾지 못했습니다. 티커를 다시 확인해 주세요.</p>
+          <p className="lead">&lsquo;{found.ticker}&rsquo; 라는 종목이 없어요. 철자를 확인해 주세요.</p>
         </div>
       )}
       {found?.status === 'failed' && (
@@ -629,9 +655,11 @@ function StocksTab() {
         <QuoteCard q={found.quote} ticker={found.ticker} name={found.name}
           volNote={found.volume_note} />
 
+        <StockDay d={found.intraday} ticker={found.ticker} />
+
         {pts.length >= 2 && (
           <div className="chartbox">
-            <p className="chartcap">최근 {pts.length}거래일 종가 · 점선은 시작값</p>
+            <p className="chartcap">날짜별 종가. 점선은 맨 왼쪽 날의 값</p>
             <AxisChart pts={pts} baseline={pts[0].rate} baseName="시작"
               color={rising ? '#4ade80' : '#f87171'}
               label={`${found.ticker} 최근 ${pts.length}거래일 종가 추이`} />
@@ -644,16 +672,15 @@ function StocksTab() {
         {brief?.status === 'pending' && (
           <div className="segbox">
             <p className="segnote">
-              이 종목은 아직 분석한 적이 없습니다. 매일 아침 미리 분석하는 종목은 7곳뿐이라,
-              그 밖의 종목은 눌러서 만들어야 합니다. <b>5초에서 2분쯤</b> 걸립니다.
+              이 종목은 아직 설명이 없어요. 만드는 데 <b>5초에서 2분쯤</b> 걸립니다.
             </p>
             <button className="search-btn" onClick={make}>AI 브리핑 만들기</button>
           </div>
         )}
         {brief?.status === 'working' && (
           <div className="segbox">
-            <p className="segnote">분석 중입니다… {brief.elapsed ? `${brief.elapsed}초` : ''}</p>
-            <p className="segnote dim">뉴스를 모아 읽고 수치와 연결하는 중입니다. 이 화면을 떠나도 분석은 계속됩니다.</p>
+            <p className="segnote">읽고 있어요… {brief.elapsed ? `${brief.elapsed}초` : ''}</p>
+            <p className="segnote dim">다른 탭을 봐도 계속됩니다.</p>
           </div>
         )}
         {brief?.status === 'error' && (
@@ -665,7 +692,7 @@ function StocksTab() {
 
         {brief?.status === 'ready' && <>
           {!brief.precomputed && days.length === 1 && (
-            <p className="segnote dim">검색으로 만든 브리핑이라 하루치만 있습니다. 매일 쌓이는 종목은 아래 7곳입니다.</p>
+            <p className="segnote dim">이 종목은 오늘 하루만 있어요. 위 버튼의 종목들은 날짜별로 쌓입니다.</p>
           )}
           <div className="scroll">
             {days.map((x, i) => (
@@ -1325,6 +1352,8 @@ const CSS = `
 .segbox .search-btn { margin-top:4px; }
 .segnote.dim { color:#565e6b; }
 .qgrid .metric .sub { display:block; font-size:.66rem; color:#6b7280; margin-top:2px; }
+.dayhead { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:6px; }
+.daylabel { font-size:.78rem; font-weight:600; color:#8b93a1; font-variant-numeric:tabular-nums; }
 `
 
 export default App

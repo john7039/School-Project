@@ -209,3 +209,54 @@ def volume_note(hist, volume, skip_last=True):
     else:
         word = "평소와 비슷하다"
     return f"최근 {len(vols)}거래일 평균의 {r:.1f}배 — {word}"
+
+
+def intraday(ticker):
+    """그 종목의 '하루' 가 어떻게 움직였는지 — 5분봉.
+
+    period="1d" 는 가장 최근 장 하루를 준다. 주말에 불러도 금요일 장이 나온다.
+
+    시각은 미국 동부 시각으로 그대로 쓴다. 한국 시각으로 바꾸면 23:30 에
+    시작해 다음날 06:00 에 끝나서, 한 장이 이틀에 걸쳐 보인다 — 그래프의
+    가로축이 자정을 넘어가면 '하루' 로 읽히지 않는다. 그래서 09:30~16:00
+    으로 두고, 한국 시각은 화면 설명으로 알려준다.
+
+    ⚠️ 마지막 봉의 종가와 공식 종가는 조금 다르다 (204.81 vs 204.64).
+    그래서 이 함수는 '모양' 만 돌려주고 대표 숫자는 quote() 것을 쓴다.
+    같은 값을 두 곳에서 가져오면 카드와 그래프가 어긋난다 — 환율에서
+    32일 중 13일이 그랬다.
+    """
+    import yfinance as yf
+    t = (ticker or "").upper().strip()
+    try:
+        h = yf.Ticker(t).history(period="1d", interval="5m")
+    except Exception as e:
+        print(f"  장중 조회 실패 {t}: {e.__class__.__name__}")
+        return None
+    if h is None or len(h) < 2:
+        return None
+
+    pts, closes = [], []
+    for idx, row in h.iterrows():
+        c = _num(row.get("Close"))
+        if c is None:
+            continue
+        pts.append({"t": idx.strftime("%H:%M"), "price": round(c, 2)})
+        closes.append(c)
+    if len(pts) < 2:
+        return None
+
+    op, last = closes[0], closes[-1]
+    return {
+        "session": h.index[0].strftime("%Y-%m-%d"),
+        "tz": "미국 동부",
+        "open_at": pts[0]["t"],
+        "close_at": pts[-1]["t"],
+        "points": pts,
+        "open": round(op, 2),
+        "last": round(last, 2),
+        "high": round(max(closes), 2),
+        "low": round(min(closes), 2),
+        "chg": round(last - op, 2),
+        "pct": round((last - op) / op * 100, 2) if op else None,
+    }

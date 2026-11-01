@@ -643,6 +643,7 @@ def stock_find(q: str = "", days: int = 30):
     return {"status": "ready", "query": q, "ticker": tk, "name": name,
             "known": sure, "precomputed": tk in TK.PRECOMPUTED,
             "quote": quote, "history": hist,
+            "intraday": stockquote.intraday(tk),
             "volume_note": stockquote.volume_note(hist, quote.get("volume"))}
 
 
