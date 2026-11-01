@@ -454,60 +454,239 @@ function ArticlesTab() {
 }
 
 // ===== 탭 2: 종목별 =====
+function fmtCap(v) {
+  if (!v) return '—'
+  if (v >= 1e12) return (v / 1e12).toFixed(2) + '조 달러'
+  if (v >= 1e8) return Math.round(v / 1e8).toLocaleString() + '억 달러'
+  return v.toLocaleString() + ' 달러'
+}
+
+// 52주 범위에서 현재가가 어디인가. 숫자 두 개보다 막대 하나가 빠르게 읽힌다
+function W52Bar({ lo, hi, pos, cur }) {
+  if (lo == null || hi == null || pos == null) return null
+  return (
+    <div className="w52">
+      <div className="w52-top"><span>52주 최저</span><span>52주 최고</span></div>
+      <div className="w52-bar">
+        <div className="w52-dot" style={{ left: `${(pos * 100).toFixed(1)}%` }} />
+      </div>
+      <div className="w52-bot">
+        <span>${lo.toFixed(2)}</span>
+        <span className="w52-cur">현재 ${cur.toFixed(2)}</span>
+        <span>${hi.toFixed(2)}</span>
+      </div>
+    </div>
+  )
+}
+
+// 시세 카드 — 숫자만 보여주고 '언제 기준'인지 안 쓰면 사용자는 지금 값이라고
+// 믿는다. 미국장은 한국시간 23:30~06:00 이라, 낮에 보는 값은 전날 종가다.
+function QuoteCard({ q, ticker, name, volNote }) {
+  if (!q) return null
+  const up = (q.pct ?? 0) > 0, down = (q.pct ?? 0) < 0
+  const col = up ? 'up' : down ? 'down' : ''
+  const live = q.market_state === 'REGULAR'
+  return (
+    <div className="qcard">
+      <div className="qhead">
+        <div>
+          <span className="qtk">{ticker}</span>
+          <span className="qnm">{name}</span>
+        </div>
+        <span className={`qstate${live ? ' on' : ''}`}>{q.state_ko}</span>
+      </div>
+
+      <div className="qprice">
+        <span className={`qnow ${col}`}>${q.price?.toFixed(2)}</span>
+        {q.chg != null && (
+          <span className={`qchg ${col}`}>
+            {up ? '▲' : down ? '▼' : '▬'} {Math.abs(q.chg).toFixed(2)} ({q.pct > 0 ? '+' : ''}{q.pct}%)
+          </span>
+        )}
+      </div>
+
+      <div className="qwhen">
+        {q.quote_time ? `${q.quote_time.replace('T', ' ')} 기준` : '기준 시각 미확인'}
+        {q.state_note && <> · {q.state_note}</>}
+      </div>
+
+      {q.ext_price != null && (
+        <div className="qext">
+          {q.ext_label} ${q.ext_price.toFixed(2)}
+          {q.ext_pct != null && <> ({q.ext_pct > 0 ? '+' : ''}{q.ext_pct}%)</>}
+        </div>
+      )}
+
+      <div className="qgrid">
+        <div className="metric">
+          <span className="k">거래량</span>
+          <span className="v">{fmtVol(q.volume)}</span>
+          {volNote && <span className="sub">{volNote.split(' — ')[1] || volNote}</span>}
+        </div>
+        <div className="metric"><span className="k">시가총액</span><span className="v">{fmtCap(q.market_cap)}</span></div>
+        <div className="metric"><span className="k">PER</span><span className="v">{q.pe != null ? q.pe.toFixed(1) : '—'}</span></div>
+        <div className="metric"><span className="k">거래소</span><span className="v">{q.exchange || '—'}</span></div>
+      </div>
+
+      <W52Bar lo={q.w52_low} hi={q.w52_high} pos={q.w52_pos} cur={q.price} />
+    </div>
+  )
+}
+
 function StocksTab() {
-  const [cur, setCur] = useState('AAPL')
-  const [days, setDays] = useState([])
+  const [q, setQ] = useState('')
+  const [found, setFound] = useState(null)
+  const [brief, setBrief] = useState(null)
+  const [busy, setBusy] = useState(false)
   const [sel, setSel] = useState(null)
+  const [chips, setChips] = useState([])
+
+  // 브리핑은 백그라운드로 만들고 몇 초마다 물어본다. 긴 HTTP 연결을 붙잡고
+  // 있으면 nginx(60초)·브라우저·Funnel 중 어디선가 끊긴다 — 단어 검색에서
+  // '유가' 가 실제로 60초에 끊겨 화면에 아무 일도 일어나지 않았다.
   useEffect(() => {
-    setDays([])
-    fetch(`${API}/api/company/${cur}`).then(r => r.json()).then(setDays).catch(() => {})
-  }, [cur])
-  const co = CO_NAME[cur]
-  const first = days[0]
+    if (!brief || brief.status !== 'working') return
+    const t = setTimeout(() => {
+      fetch(`${API}/api/stock/brief?q=${encodeURIComponent(brief.ticker)}`)
+        .then(r => r.json()).then(setBrief)
+        .catch(() => setBrief(b => ({ ...b, status: 'error', message: '서버에 연결하지 못했습니다' })))
+    }, 3000)
+    return () => clearTimeout(t)
+  }, [brief])
+
+  const run = (term) => {
+    const word = (term ?? q).trim()
+    if (!word) return
+    setQ(word); setBusy(true); setFound(null); setBrief(null)
+    fetch(`${API}/api/stock/find?q=${encodeURIComponent(word)}`)
+      .then(r => r.json()).then(d => {
+        setFound(d)
+        if (d.chips || d.popular) setChips(d.popular || [])
+        if (d.status === 'ready') {
+          return fetch(`${API}/api/stock/brief?q=${encodeURIComponent(d.ticker)}`)
+            .then(r => r.json()).then(setBrief)
+        }
+      })
+      .catch(() => setFound({ status: 'failed', query: word }))
+      .finally(() => setBusy(false))
+  }
+
+  const make = () => {
+    setBrief(b => ({ ...b, status: 'working', elapsed: 0 }))
+    fetch(`${API}/api/stock/brief?q=${encodeURIComponent(found.ticker)}&force=true`)
+      .then(r => r.json()).then(setBrief)
+      .catch(() => setBrief(b => ({ ...b, status: 'error', message: '브리핑을 시작하지 못했습니다' })))
+  }
+
+  useEffect(() => { run('NVDA') }, [])
+
+  const days = (brief && brief.days) || []
+  const hist = (found && found.history) || []
+  const pts = hist.map(h => ({ t: h.date.slice(5), rate: h.close }))
+  const rising = pts.length >= 2 && pts[pts.length - 1].rate >= pts[0].rate
+
   return (
     <div className="panel">
-      <p className="lead">유명 회사 7곳의 <b>하루 상황</b>을 매일 기록. 회사를 고르면 날짜별로 주가·거래량·뉴스와 AI 종합을 볼 수 있어요.</p>
-      <div className="chips">
-        {COMPANIES.map(c => (
-          <button className={`chip${c.t === cur ? ' on' : ''}`} key={c.t} onClick={() => setCur(c.t)}>
-            <div className="ct">{c.t}</div><div className="cn">{c.n}</div>
+      <p className="lead">📈 <b>종목 이름만 알면 됩니다.</b> 현재 수치와 52주 위치를 바로 보여주고, AI가 그 종목의 상황을 쉽게 풀어줘요.</p>
+
+      <div className="search">
+        <div className="search-row">
+          <input className="search-in"
+            placeholder="종목 이름이나 티커 — 엔비디아, TSLA, 코카콜라…"
+            value={q}
+            onChange={e => setQ(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') run() }} />
+          <button className="search-btn" onClick={() => run()} disabled={busy}>
+            {busy ? '찾는 중…' : '검색'}
           </button>
-        ))}
+        </div>
+        <div className="search-chips">
+          {(chips.length ? chips : COMPANIES.map(c => ({ ticker: c.t, name: c.n }))).map(c => (
+            <button key={c.ticker} className={`chip${found?.ticker === c.ticker ? ' on' : ''}`}
+              onClick={() => run(c.ticker)}>{c.name}</button>
+          ))}
+        </div>
       </div>
-      <div className="cohead">
-        <span className="coname">{cur} · {co}</span>
-        {first && <span className="coprice">${first.close?.toFixed(2)} {chgHtml(first.change_pct)}</span>}
-      </div>
-      {days.length >= 2 && (() => {
-        const s = [...days].reverse()
-        const closes = s.map(d => d.close)
-        const rising = closes[closes.length - 1] >= closes[0]
-        return (
+
+      {found?.status === 'none' && (
+        <div className="empty">
+          <p className="lead">
+            &lsquo;{found.query}&rsquo; 를 종목으로 알아보지 못했습니다.
+            {found.hangul && <><br />미국 상장 종목만 다루고 있어요. 국내 종목은 아직 지원하지 않습니다.</>}
+          </p>
+        </div>
+      )}
+      {found?.status === 'notfound' && (
+        <div className="empty">
+          <p className="lead">&lsquo;{found.ticker}&rsquo; 라는 종목을 찾지 못했습니다. 티커를 다시 확인해 주세요.</p>
+        </div>
+      )}
+      {found?.status === 'failed' && (
+        <div className="empty"><p className="lead">서버에 연결하지 못했습니다. 잠시 후 다시 시도해 주세요.</p></div>
+      )}
+
+      {found?.status === 'ready' && <>
+        <QuoteCard q={found.quote} ticker={found.ticker} name={found.name}
+          volNote={found.volume_note} />
+
+        {pts.length >= 2 && (
           <div className="chartbox">
-            <p className="chartcap">최근 {s.length}일 종가 추이 · 점을 누르면 그날 상세</p>
-            <Chart data={closes} dates={s.map(d => d.date)} color={rising ? '#4ade80' : '#f87171'} fmt={v => '$' + v.toFixed(0)} onPoint={(i) => setSel(s[i])} />
+            <p className="chartcap">최근 {pts.length}거래일 종가 · 점선은 시작값</p>
+            <AxisChart pts={pts} baseline={pts[0].rate} baseName="시작"
+              color={rising ? '#4ade80' : '#f87171'}
+              label={`${found.ticker} 최근 ${pts.length}거래일 종가 추이`} />
           </div>
-        )
-      })()}
-      <div className="label">일자별 기록 (장 마감 후 종합)</div>
-      <div className="scroll">
-        {days.map((x, i) => (
-          <button className={`day${i === 0 ? ' today' : ''}`} key={x.date} onClick={() => setSel(x)}>
-            <div className="day-top">{i === 0 && <span className="badge">최신</span>}<span>{x.date} ({dowOf(x.date)})</span></div>
-            <div className="day-metrics">
-              <div className="metric"><span className="k">종가</span><span className="v">${x.close?.toFixed(2)} {chgHtml(x.change_pct)}</span></div>
-              <div className="metric"><span className="k">거래량</span><span className="v">{fmtVol(x.volume)}</span></div>
-              <span className={`flow ${flowClass(x.change_pct)}`}>{flowLabel(x.change_pct)}</span>
-            </div>
-            <div className="day-sum">{(x.ai_summary || '').slice(0, 52)}…</div>
-            <div className="day-foot"><span>관련 뉴스 {(x.news || []).length}건</span><span className="arrow">그날 정보 보기 →</span></div>
-          </button>
-        ))}
-        {days.length === 0 && <p className="lead">이 종목의 브리핑이 아직 없습니다.</p>}
-      </div>
+        )}
+
+        <div className="seg" />
+        <div className="label">💬 AI 브리핑</div>
+
+        {brief?.status === 'pending' && (
+          <div className="segbox">
+            <p className="segnote">
+              이 종목은 아직 분석한 적이 없습니다. 매일 아침 미리 분석하는 종목은 7곳뿐이라,
+              그 밖의 종목은 눌러서 만들어야 합니다. <b>5초에서 2분쯤</b> 걸립니다.
+            </p>
+            <button className="search-btn" onClick={make}>AI 브리핑 만들기</button>
+          </div>
+        )}
+        {brief?.status === 'working' && (
+          <div className="segbox">
+            <p className="segnote">분석 중입니다… {brief.elapsed ? `${brief.elapsed}초` : ''}</p>
+            <p className="segnote dim">뉴스를 모아 읽고 수치와 연결하는 중입니다. 이 화면을 떠나도 분석은 계속됩니다.</p>
+          </div>
+        )}
+        {brief?.status === 'error' && (
+          <div className="segbox">
+            <p className="segnote">{brief.message || '브리핑을 만들지 못했습니다.'}</p>
+            <button className="search-btn" onClick={make}>다시 시도</button>
+          </div>
+        )}
+
+        {brief?.status === 'ready' && <>
+          {!brief.precomputed && days.length === 1 && (
+            <p className="segnote dim">검색으로 만든 브리핑이라 하루치만 있습니다. 매일 쌓이는 종목은 아래 7곳입니다.</p>
+          )}
+          <div className="scroll">
+            {days.map((x, i) => (
+              <button className={`day${i === 0 ? ' today' : ''}`} key={x.date} onClick={() => setSel(x)}>
+                <div className="day-top">{i === 0 && <span className="badge">최신</span>}<span>{x.date} ({dowOf(x.date)})</span></div>
+                <div className="day-metrics">
+                  <div className="metric"><span className="k">종가</span><span className="v">${x.close?.toFixed(2)} {chgHtml(x.change_pct)}</span></div>
+                  <div className="metric"><span className="k">거래량</span><span className="v">{fmtVol(x.volume)}</span></div>
+                  <span className={`flow ${flowClass(x.change_pct)}`}>{flowLabel(x.change_pct)}</span>
+                </div>
+                <div className="day-sum">{(x.ai_summary || '').slice(0, 52)}…</div>
+                <div className="day-foot"><span>관련 뉴스 {(x.news || []).length}건</span><span className="arrow">그날 정보 보기 →</span></div>
+              </button>
+            ))}
+          </div>
+        </>}
+      </>}
+
       {sel && <Modal onClose={() => setSel(null)}>
         <div className="m-date">{sel.date} ({dowOf(sel.date)})</div>
-        <h2 className="m-title">{cur} · {co}</h2>
+        <h2 className="m-title">{found?.ticker} · {found?.name}</h2>
         <div className="m-row">
           <div className="metric"><span className="k">종가</span><span className="v big">${sel.close?.toFixed(2)} {chgHtml(sel.change_pct)}</span></div>
           <div className="metric"><span className="k">거래량</span><span className="v big">{fmtVol(sel.volume)}</span></div>
@@ -1113,6 +1292,39 @@ const CSS = `
   .glossary { list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:9px; }
   .glossary li { background:#212734; border:1px solid #262c3a; border-radius:9px; padding:10px 12px; font-size:.83rem; line-height:1.55; color:#c4cad4; }
   .glossary b { color:#e6e8eb; display:block; margin-bottom:2px; }
+
+/* ── 종목 시세 카드 ───────────────────────────────── */
+.qcard { background:#161a24; border:1px solid #262c3a; border-radius:14px; padding:16px 16px 14px; margin:14px 0 4px; }
+.qhead { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:10px; }
+.qtk { font-size:1.02rem; font-weight:700; color:#e6e8eb; letter-spacing:.02em; }
+.qnm { font-size:.82rem; color:#8b93a1; margin-left:8px; }
+.qstate { flex:0 0 auto; font-size:.7rem; font-weight:700; padding:4px 9px; border-radius:999px;
+          background:#1f2430; color:#8b93a1; border:1px solid #2b3240; }
+.qstate.on { background:#12351f; color:#4ade80; border-color:#1c4a2b; }
+.qprice { display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; }
+.qnow { font-size:1.9rem; font-weight:700; color:#e6e8eb; font-variant-numeric:tabular-nums; }
+.qchg { font-size:.92rem; font-weight:600; font-variant-numeric:tabular-nums; }
+.qwhen { font-size:.72rem; color:#6b7280; line-height:1.6; margin-top:6px; }
+.qext { font-size:.76rem; color:#8b93a1; margin-top:7px; padding-top:7px; border-top:1px dashed #2b3240; }
+.qgrid { display:grid; grid-template-columns:repeat(4,1fr); gap:10px; margin-top:14px;
+         padding-top:13px; border-top:1px solid #222836; }
+@media (max-width:560px) { .qgrid { grid-template-columns:repeat(2,1fr); } }
+
+/* 52주 범위 막대 — 숫자 두 개보다 위치 하나가 빨리 읽힌다 */
+.w52 { margin-top:16px; }
+.w52-top, .w52-bot { display:flex; justify-content:space-between; font-size:.68rem; color:#6b7280; }
+.w52-bot { margin-top:5px; font-variant-numeric:tabular-nums; }
+.w52-cur { color:#e6e8eb; font-weight:600; }
+.w52-bar { position:relative; height:6px; margin-top:5px; border-radius:999px;
+           background:linear-gradient(90deg,#1f3a4d,#2b3a55,#3a2b2b); }
+.w52-dot { position:absolute; top:50%; width:11px; height:11px; margin-left:-5.5px;
+           transform:translateY(-50%); border-radius:50%; background:#e6e8eb; border:2px solid #161a24; }
+
+/* 브리핑 상태 상자 (없음 / 만드는 중 / 실패) */
+.segbox { background:#161a24; border:1px solid #262c3a; border-radius:12px; padding:14px; margin:4px 0 10px; }
+.segbox .search-btn { margin-top:4px; }
+.segnote.dim { color:#565e6b; }
+.qgrid .metric .sub { display:block; font-size:.66rem; color:#6b7280; margin-top:2px; }
 `
 
 export default App

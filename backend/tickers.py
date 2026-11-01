@@ -1,0 +1,176 @@
+"""종목 검색어를 티커로 바꿔주는 사전.
+
+search_terms.py 가 한국어 검색어를 영어 표현으로 넓히는 것과 같은 역할을
+종목에 대해 한다. 사용자는 "엔비디아" 라고 치는데 데이터는 전부 NVDA 로
+들어 있어서, 그대로는 한 건도 안 걸린다.
+
+세 가지를 받아준다 —
+  1) 한글 이름      엔비디아 · 애플 · 테슬라
+  2) 영문 이름      nvidia · apple · tesla
+  3) 티커 그대로     NVDA · nvda
+
+사전에 없는 티커는 resolve() 가 '후보' 로만 돌려주고, 실제로 있는 종목인지는
+yfinance 가 판정한다. 사전을 무한히 늘리지 않으려는 것이다 — 미국 상장만
+수천 개다.
+
+⚠️ 미국 상장 종목만 다룬다. 주가(yfinance)는 한국 종목도 되지만 뉴스를
+Finnhub 에서 받아서 국내 기업은 기사가 거의 없다. 뉴스 없는 종목은 AI 가
+설명할 재료가 없어서 "주가만 있는 빈 화면" 이 된다. 범위를 넓히려면
+한글 뉴스 수집 경로(Google News RSS)를 먼저 붙여야 한다.
+"""
+
+# 티커 -> 화면에 쓸 한글 이름
+NAMES = {
+    # 매일 미리 분석하는 7종목 (company_curate.py 와 같아야 한다)
+    "AAPL": "애플", "MSFT": "마이크로소프트", "NVDA": "엔비디아",
+    "AMZN": "아마존", "GOOGL": "알파벳(구글)", "TSLA": "테슬라", "META": "메타",
+    # 반도체
+    "AMD": "AMD", "INTC": "인텔", "TSM": "TSMC", "AVGO": "브로드컴",
+    "MU": "마이크론", "QCOM": "퀄컴", "ARM": "ARM", "SMCI": "슈퍼마이크로",
+    "ASML": "ASML", "LRCX": "램리서치",
+    # 소프트웨어·플랫폼
+    "ORCL": "오라클", "CRM": "세일즈포스", "ADBE": "어도비", "IBM": "IBM",
+    "CSCO": "시스코", "NFLX": "넷플릭스", "PLTR": "팔란티어", "SHOP": "쇼피파이",
+    "SNOW": "스노우플레이크", "UBER": "우버", "ABNB": "에어비앤비",
+    "COIN": "코인베이스", "SPOT": "스포티파이",
+    # 소비·유통
+    "WMT": "월마트", "COST": "코스트코", "HD": "홈디포", "NKE": "나이키",
+    "SBUX": "스타벅스", "MCD": "맥도날드", "KO": "코카콜라", "PEP": "펩시코",
+    "DIS": "디즈니",
+    # 금융
+    "JPM": "JP모건", "BAC": "뱅크오브아메리카", "V": "비자", "MA": "마스터카드",
+    "GS": "골드만삭스", "BRK-B": "버크셔해서웨이",
+    # 제조·에너지·항공
+    "BA": "보잉", "LMT": "록히드마틴", "CAT": "캐터필러", "GE": "GE",
+    "XOM": "엑슨모빌", "CVX": "셰브론", "F": "포드", "GM": "GM",
+    # 헬스케어
+    "JNJ": "존슨앤존슨", "PFE": "화이자", "LLY": "일라이릴리",
+    "UNH": "유나이티드헬스", "MRNA": "모더나", "ABBV": "애브비",
+    # 지수 ETF — 초보자가 '나스닥', 'S&P' 로 많이 찾는다
+    "QQQ": "나스닥100 ETF", "SPY": "S&P500 ETF", "DIA": "다우존스 ETF",
+}
+
+# 검색어 -> 티커. 소문자·공백제거 후 비교한다.
+_EXTRA = {
+    "애플": "AAPL", "apple": "AAPL", "아이폰": "AAPL",
+    "마이크로소프트": "MSFT", "microsoft": "MSFT", "엠에스": "MSFT", "ms": "MSFT",
+    "엔비디아": "NVDA", "nvidia": "NVDA", "앤비디아": "NVDA", "엔비디야": "NVDA",
+    "아마존": "AMZN", "amazon": "AMZN",
+    "구글": "GOOGL", "google": "GOOGL", "알파벳": "GOOGL", "유튜브": "GOOGL",
+    "테슬라": "TSLA", "tesla": "TSLA", "머스크": "TSLA", "테스라": "TSLA",
+    "메타": "META", "meta": "META", "페이스북": "META", "facebook": "META",
+    "인스타그램": "META", "인스타": "META",
+    "에이엠디": "AMD", "암드": "AMD",
+    "인텔": "INTC", "intel": "INTC",
+    "티에스엠씨": "TSM", "tsmc": "TSM", "대만반도체": "TSM",
+    "브로드컴": "AVGO", "broadcom": "AVGO",
+    "마이크론": "MU", "micron": "MU",
+    "퀄컴": "QCOM", "qualcomm": "QCOM",
+    "암": "ARM", "에이알엠": "ARM",
+    "슈퍼마이크로": "SMCI", "슈마컴": "SMCI",
+    "에이에스엠엘": "ASML",
+    "램리서치": "LRCX",
+    "오라클": "ORCL", "oracle": "ORCL",
+    "세일즈포스": "CRM", "salesforce": "CRM",
+    "어도비": "ADBE", "adobe": "ADBE", "포토샵": "ADBE",
+    "아이비엠": "IBM",
+    "시스코": "CSCO", "cisco": "CSCO",
+    "넷플릭스": "NFLX", "netflix": "NFLX",
+    "팔란티어": "PLTR", "palantir": "PLTR", "팔란티르": "PLTR",
+    "쇼피파이": "SHOP", "shopify": "SHOP",
+    "스노우플레이크": "SNOW",
+    "우버": "UBER", "uber": "UBER",
+    "에어비앤비": "ABNB", "airbnb": "ABNB",
+    "코인베이스": "COIN", "coinbase": "COIN",
+    "스포티파이": "SPOT", "spotify": "SPOT",
+    "월마트": "WMT", "walmart": "WMT",
+    "코스트코": "COST", "costco": "COST",
+    "홈디포": "HD",
+    "나이키": "NKE", "nike": "NKE",
+    "스타벅스": "SBUX", "starbucks": "SBUX",
+    "맥도날드": "MCD", "맥날": "MCD", "mcdonalds": "MCD",
+    "코카콜라": "KO", "코카콜": "KO", "콜라": "KO", "cocacola": "KO",
+    "펩시": "PEP", "펩시코": "PEP", "pepsi": "PEP",
+    "디즈니": "DIS", "disney": "DIS",
+    "제이피모건": "JPM", "jpmorgan": "JPM", "제피모건": "JPM",
+    "뱅크오브아메리카": "BAC", "뱅크오브어메리카": "BAC", "bofa": "BAC",
+    "비자": "V", "visa": "V",
+    "마스터카드": "MA", "mastercard": "MA",
+    "골드만삭스": "GS", "goldman": "GS", "골드먼삭스": "GS",
+    "버크셔": "BRK-B", "버크셔해서웨이": "BRK-B", "버핏": "BRK-B",
+    "berkshire": "BRK-B", "brkb": "BRK-B", "brk.b": "BRK-B",
+    "보잉": "BA", "boeing": "BA",
+    "록히드마틴": "LMT", "록히드": "LMT", "lockheed": "LMT",
+    "캐터필러": "CAT",
+    "지이": "GE",
+    "엑슨모빌": "XOM", "엑손모빌": "XOM", "exxon": "XOM",
+    "셰브론": "CVX", "쉐브론": "CVX", "chevron": "CVX",
+    "포드": "F", "ford": "F",
+    "지엠": "GM", "제너럴모터스": "GM",
+    "존슨앤존슨": "JNJ", "존슨": "JNJ",
+    "화이자": "PFE", "pfizer": "PFE",
+    "일라이릴리": "LLY", "릴리": "LLY", "lilly": "LLY",
+    "유나이티드헬스": "UNH",
+    "모더나": "MRNA", "moderna": "MRNA",
+    "애브비": "ABBV",
+    "나스닥": "QQQ", "nasdaq": "QQQ", "나스닥100": "QQQ", "큐큐큐": "QQQ",
+    "에스앤피": "SPY", "sp500": "SPY", "s&p500": "SPY", "s&p": "SPY",
+    "스파이": "SPY", "미국지수": "SPY",
+    "다우": "DIA", "다우존스": "DIA", "dow": "DIA",
+}
+
+# 사전에서 자동으로 만들 수 있는 것은 자동으로 (티커 그대로, 한글 이름 그대로)
+ALIASES = {}
+for _t, _n in NAMES.items():
+    ALIASES[_t.lower()] = _t
+    ALIASES[_t.lower().replace("-", "")] = _t
+    ALIASES[_n.lower()] = _t
+ALIASES.update(_EXTRA)
+
+# 칩으로 보여줄 인기 종목
+POPULAR = ["NVDA", "AAPL", "TSLA", "MSFT", "AMZN", "GOOGL", "META", "AMD"]
+
+# 매일 아침 미리 분석해 두는 종목 (company_curate.py 와 일치)
+PRECOMPUTED = ["AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "TSLA", "META"]
+
+
+def _norm(q):
+    """비교용으로 다듬는다. 공백·점·하이픈을 떼고 소문자로."""
+    return "".join(q.lower().split()).replace(".", "").replace("-", "")
+
+
+def resolve(q):
+    """검색어를 (티커, 한글이름, 확실한가) 로 바꾼다.
+
+    확실한가=True  사전에 있는 종목. 바로 쓰면 된다
+    확실한가=False 사전에 없지만 티커처럼 생겼다. yfinance 로 확인해야 한다
+    못 찾으면 (None, None, False)
+    """
+    q = (q or "").strip()
+    if not q:
+        return None, None, False
+
+    hit = ALIASES.get(_norm(q))
+    if hit:
+        return hit, NAMES.get(hit, hit), True
+
+    # 사전에 없다. 티커처럼 생겼으면 후보로 넘긴다 (예: 'ADSK', 'PANW')
+    #
+    # ⚠️ isalnum() 은 유니코드라서 한글도 통과한다. '현대차' 가 티커 후보로
+    # 잡혀서 yfinance 를 헛돌게 했다. ASCII 영문·숫자만 받는다.
+    up = q.upper().replace(" ", "")
+    ok = up and all(("A" <= c <= "Z") or c.isdigit() or c in ".-" for c in up)
+    if ok and 1 <= len(up) <= 6:
+        return up, up, False
+
+    return None, None, False
+
+
+def has_hangul(q):
+    """한글이 섞여 있나. 사전에 없는 한글 검색어는 티커일 수 없으므로,
+    화면에서 '미국 종목만 지원한다' 고 안내하는 데 쓴다."""
+    return any("\uac00" <= c <= "\ud7a3" or "\u3131" <= c <= "\u318e" for c in (q or ""))
+
+
+def name_of(ticker):
+    return NAMES.get((ticker or "").upper(), (ticker or "").upper())

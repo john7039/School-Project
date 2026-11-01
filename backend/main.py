@@ -589,6 +589,165 @@ def company(ticker: str):
     return out
 
 
+# ───────────────────────── 종목 검색 ─────────────────────────
+#
+# 단어 검색(/api/news/search + /api/news/pick)과 같은 쌍으로 나눠 둔다.
+#   find   — 빠르다. 티커를 알아내고 수치를 돌려준다
+#   brief  — 느리다. AI 분석. 없으면 백그라운드로 만들고 화면이 다시 물어본다
+# 하나로 합치면 수치를 보여주기까지 AI 를 기다려야 한다.
+
+def _stock_job(ticker):
+    """단어 검색과 같은 _JOBS 를 쓰므로 키가 겹치지 않게 접두사를 붙인다.
+    'TSLA' 라는 단어로 기사 검색을 하는 사람과 TSLA 종목을 보는 사람이
+    같은 작업으로 묶이면, 한쪽이 끝났을 때 다른 쪽도 끝난 줄 안다."""
+    return "stock:" + ticker.upper()
+
+
+def _popular_chips():
+    import tickers as TK
+    return [{"ticker": t, "name": TK.name_of(t)} for t in TK.POPULAR]
+
+
+@app.get("/api/stock/find")
+def stock_find(q: str = "", days: int = 30):
+    """검색어 → 티커 + 현재 수치 + 종가 추이.
+
+    status:
+      ready    — 찾았다
+      none     — 티커로 해석할 수 없는 검색어
+      notfound — 티커처럼 생겼지만 야후에 없는 종목
+
+    hangul=true 는 '한글로 검색했는데 사전에 없다' 는 뜻이다. 화면이
+    "미국 종목만 모으고 있어요" 라고 안내할 수 있게 구분해서 돌려준다.
+    """
+    import stockquote
+    import tickers as TK
+
+    q = (q or "").strip()
+    if not q:
+        return {"status": "none", "query": q, "popular": _popular_chips()}
+
+    tk, nm, sure = TK.resolve(q)
+    if not tk:
+        return {"status": "none", "query": q, "hangul": TK.has_hangul(q),
+                "popular": _popular_chips()}
+
+    quote = stockquote.quote(tk)
+    if not quote:
+        return {"status": "notfound", "query": q, "ticker": tk,
+                "popular": _popular_chips()}
+
+    # 사전에 없는 종목은 야후가 준 이름을 쓴다 (한글 이름이 없으므로)
+    name = nm if sure else quote["short_name"]
+    hist = stockquote.history(tk, max(5, min(days, 120)))
+    return {"status": "ready", "query": q, "ticker": tk, "name": name,
+            "known": sure, "precomputed": tk in TK.PRECOMPUTED,
+            "quote": quote, "history": hist,
+            "volume_note": stockquote.volume_note(hist, quote.get("volume"))}
+
+
+@app.get("/api/stock/brief")
+def stock_brief(q: str = "", force: bool = False, redo: bool = False):
+    """종목 AI 브리핑.
+
+    status:
+      ready   — 브리핑이 있다 (days 에 날짜별로)
+      pending — 아직 없다. force=true 로 다시 부르면 만든다
+      working — 만들고 있다. 몇 초 뒤 다시 물어보면 된다
+      none    — 종목을 해석할 수 없다
+      error   — 만들다 실패했다
+
+    매일 아침 미리 분석하는 7종목은 곧바로 ready + 7일치가 나온다.
+    그 밖의 종목은 검색한 사람이 만들게 되고, 하루치만 생긴다.
+    """
+    import sqlite3 as _sq
+    import stockquote
+    import tickers as TK
+
+    if redo:
+        force = True
+    q = (q or "").strip()
+    tk, nm, sure = TK.resolve(q)
+    if not tk:
+        return {"status": "none", "query": q, "hangul": TK.has_hangul(q)}
+
+    # 진행 중인 작업을 캐시보다 먼저 본다. 순서를 반대로 하면 재생성 중에
+    # 폴링이 옛 브리핑을 집어 '완료' 로 돌려준다 (단어 검색에서 당한 것).
+    job = _job_state(_stock_job(tk))
+    if job:
+        if job.get("error"):
+            with _JOBS_LOCK:
+                _JOBS.pop(_stock_job(tk), None)
+            return {"status": "error", "ticker": tk, "query": q,
+                    "message": job["error"]}
+        return {"status": "working", "ticker": tk, "query": q,
+                "elapsed": int(time.time() - job["started"])}
+
+    def _days_of(ticker):
+        conn = get_db()
+        try:
+            rows = conn.execute(
+                "SELECT ticker, date, close, change_pct, volume, news_json, ai_summary "
+                "FROM company_daily WHERE ticker=? ORDER BY date DESC LIMIT 14",
+                (ticker,)).fetchall()
+        except _sq.OperationalError:
+            rows = []
+        conn.close()
+        out = []
+        for r in rows:
+            d = dict(r)
+            raw = d.pop("news_json", None)
+            try:
+                d["news"] = json.loads(raw) if raw else []
+            except (ValueError, TypeError):
+                d["news"] = []
+            out.append(d)
+        return out
+
+    days = _days_of(tk)
+    name = nm if sure else tk
+
+    if days and not force:
+        return {"status": "ready", "ticker": tk, "name": name,
+                "query": q, "cached": True,
+                "precomputed": tk in TK.PRECOMPUTED, "days": days}
+
+    quote = stockquote.quote(tk)
+    if not quote:
+        return {"status": "notfound", "ticker": tk, "query": q}
+    if not sure:
+        name = quote["short_name"]
+
+    if not force:
+        return {"status": "pending", "ticker": tk, "name": name, "query": q,
+                "precomputed": False, "days": days}
+
+    with _JOBS_LOCK:
+        _JOBS[_stock_job(tk)] = {"started": time.time(), "error": None}
+    threading.Thread(target=_run_stock_brief,
+                     args=(tk, name, quote, redo), daemon=True).start()
+    return {"status": "working", "ticker": tk, "name": name, "query": q,
+            "elapsed": 0}
+
+
+def _run_stock_brief(ticker, name, quote, redo):
+    """백그라운드에서 브리핑 하나를 만든다. 실패해도 상태에 남긴다."""
+    import stockbrief
+    key = _stock_job(ticker)
+    try:
+        # CPU 한 대로 모델을 돌린다. 기사 분석과 동시에 돌리면 둘 다 느려진다.
+        with _ANALYZE_LOCK:
+            stockbrief.build(ticker, name, quote, redo=redo)
+        with _JOBS_LOCK:
+            _JOBS.pop(key, None)
+    except Exception as e:
+        msg = f"브리핑을 만들지 못했습니다 ({e.__class__.__name__})"
+        print(f"  {ticker} 브리핑 실패: {e.__class__.__name__}: {e}")
+        with _JOBS_LOCK:
+            if key in _JOBS:
+                _JOBS[key]["error"] = msg
+
+
 @app.get("/api/fx")
 def fx(days: int = 15):
     """환율 — 날짜별 기록(값·증감·AI 분석, 최신순) + 최근 추이(그래프용).
