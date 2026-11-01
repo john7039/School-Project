@@ -608,6 +608,42 @@ def _popular_chips():
     return [{"ticker": t, "name": TK.name_of(t)} for t in TK.POPULAR]
 
 
+@app.get("/api/theme/find")
+def theme_find(q: str = "", key: str = ""):
+    """테마(업종) 하나의 종목 시세 + 업종 수준 판단.
+
+    "유가" 처럼 회사가 아닌 말로 찾는다. 종목 검색으로는 영원히 0건인 말들이다.
+
+    status:
+      ready — 찾았다
+      none  — 테마로 해석할 수 없다 (chips 로 고를 수 있게 목록을 같이 준다)
+      failed — 테마는 맞는데 시세를 받아오지 못했다
+
+    업종 판단(stats)은 전부 코드가 계산한다. AI 를 쓰지 않는다 —
+    "왜 업종이 같이 움직였나" 는 우리 데이터에 없는 거시 인과라서,
+    물어보면 모델이 지어낸다.
+    """
+    import themequote
+    import themes as TH
+
+    k = (key or "").strip() or TH.resolve(q)
+    if not k or not TH.get(k):
+        return {"status": "none", "query": q, "chips": TH.chips()}
+
+    data = themequote.load(k)
+    if not data:
+        return {"status": "failed", "query": q, "key": k,
+                "name": TH.get(k)["name"], "chips": TH.chips()}
+    return {"status": "ready", "query": q, "chips": TH.chips(), **data}
+
+
+@app.get("/api/theme/list")
+def theme_list():
+    """칩 목록만. 화면이 처음 뜰 때 쓴다."""
+    import themes as TH
+    return {"chips": TH.chips()}
+
+
 @app.get("/api/stock/find")
 def stock_find(q: str = "", days: int = 30):
     """검색어 → 티커 + 현재 수치 + 종가 추이.

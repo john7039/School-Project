@@ -559,6 +559,69 @@ function StockDay({ d, ticker }) {
   )
 }
 
+// 오른쪽 칼럼 — 고르는 곳.
+//
+// 상세는 왼쪽 하나만 둔다. 양쪽에 상세를 두면 UI 가 두 벌이 되고, 오른쪽에서
+// 고르는 동안 왼쪽이 놀게 된다. 여기서 종목을 누르면 왼쪽이 그 종목으로 바뀐다.
+function ThemePanel({ chips, data, cur, busy, onTheme, onStock, picked }) {
+  const st = data && data.stats
+  return (
+    <div className="tpanel">
+      <div className="label">업종으로 찾기</div>
+      <p className="segnote dim">회사 이름을 몰라도 찾아갈 수 있어요.</p>
+      <div className="tchips">
+        {chips.map(c => (
+          <button key={c.key} className={`chip${cur === c.key ? ' on' : ''}`}
+            onClick={() => onTheme(c.key)}>{c.short}</button>
+        ))}
+      </div>
+
+      {busy && <p className="segnote dim">받아오는 중…</p>}
+
+      {!busy && data && <>
+        <div className="thead">
+          <span className="tname">{data.name}</span>
+          <span className="tdate">{data.date} 장</span>
+        </div>
+
+        {data.index && (
+          <div className="tindex">
+            <span className="tix-n">{data.index.name}</span>
+            <span className="tix-v">{data.index.price.toLocaleString()}</span>
+            <span className={`tix-p ${data.index.pct > 0 ? 'up' : data.index.pct < 0 ? 'down' : ''}`}>
+              {data.index.pct > 0 ? '+' : ''}{data.index.pct}%
+            </span>
+          </div>
+        )}
+
+        {st && <div className="tstat">
+          <div className="tshape">{st.shape}</div>
+          <div className="ttally">{st.tally} · 평균 {st.avg_pct > 0 ? '+' : ''}{st.avg_pct}%</div>
+          {st.odd_note && <div className="todd">{st.odd_note}</div>}
+        </div>}
+
+        <div className="trows">
+          {data.items.map(x => (
+            <button key={x.symbol}
+              className={`trow${picked === x.symbol ? ' on' : ''}`}
+              onClick={() => onStock(x.symbol)}>
+              <span className="tr-tk">{x.symbol}</span>
+              <span className="tr-nm">{x.name}</span>
+              <span className="tr-pr">{x.price.toLocaleString()}</span>
+              <span className={`tr-pc ${x.pct > 0 ? 'up' : x.pct < 0 ? 'down' : ''}`}>
+                {x.pct > 0 ? '+' : ''}{x.pct}%
+              </span>
+            </button>
+          ))}
+        </div>
+        <p className="segnote dim">종목을 누르면 왼쪽에서 자세히 볼 수 있어요.</p>
+      </>}
+
+      {!busy && !data && <p className="segnote dim">업종을 하나 골라보세요.</p>}
+    </div>
+  )
+}
+
 function StocksTab() {
   const [q, setQ] = useState('')
   const [found, setFound] = useState(null)
@@ -566,6 +629,10 @@ function StocksTab() {
   const [busy, setBusy] = useState(false)
   const [sel, setSel] = useState(null)
   const [chips, setChips] = useState([])
+  const [tchips, setTchips] = useState([])
+  const [theme, setTheme] = useState(null)
+  const [tcur, setTcur] = useState('반도체')
+  const [tbusy, setTbusy] = useState(false)
 
   // 브리핑은 백그라운드로 만들고 몇 초마다 물어본다. 긴 HTTP 연결을 붙잡고
   // 있으면 nginx(60초)·브라우저·Funnel 중 어디선가 끊긴다 — 단어 검색에서
@@ -587,11 +654,21 @@ function StocksTab() {
     fetch(`${API}/api/stock/find?q=${encodeURIComponent(word)}`)
       .then(r => r.json()).then(d => {
         setFound(d)
-        if (d.chips || d.popular) setChips(d.popular || [])
+        if (d.popular) setChips(d.popular)
         if (d.status === 'ready') {
           return fetch(`${API}/api/stock/brief?q=${encodeURIComponent(d.ticker)}`)
             .then(r => r.json()).then(setBrief)
         }
+        // 종목이 아니면 업종인지 본다. '유가' 는 회사가 아니라서 종목 검색으로는
+        // 영원히 0건이지만, 사용자가 알고 싶은 것은 분명하다.
+        return fetch(`${API}/api/theme/find?q=${encodeURIComponent(word)}`)
+          .then(r => r.json()).then(t => {
+            if (t.chips) setTchips(t.chips)
+            if (t.status === 'ready') {
+              setTcur(t.key); setTheme(t)
+              setFound(f => ({ ...f, status: 'theme', theme: t.name }))
+            }
+          }).catch(() => {})
       })
       .catch(() => setFound({ status: 'failed', query: word }))
       .finally(() => setBusy(false))
@@ -604,7 +681,18 @@ function StocksTab() {
       .catch(() => setBrief(b => ({ ...b, status: 'error', message: '브리핑을 시작하지 못했습니다' })))
   }
 
-  useEffect(() => { run('NVDA') }, [])
+  const loadTheme = (key) => {
+    setTcur(key); setTbusy(true)
+    fetch(`${API}/api/theme/find?key=${encodeURIComponent(key)}`)
+      .then(r => r.json()).then(d => {
+        if (d.chips) setTchips(d.chips)
+        setTheme(d.status === 'ready' ? d : null)
+      })
+      .catch(() => setTheme(null))
+      .finally(() => setTbusy(false))
+  }
+
+  useEffect(() => { run('NVDA'); loadTheme('반도체') }, [])
 
   const days = (brief && brief.days) || []
   const hist = (found && found.history) || []
@@ -612,104 +700,122 @@ function StocksTab() {
   const rising = pts.length >= 2 && pts[pts.length - 1].rate >= pts[0].rate
 
   return (
-    <div className="panel">
-      <p className="lead">📈 <b>종목 이름으로 찾는 주가와 AI 분석.</b></p>
+    <div className="panel wide">
+      <p className="lead">📈 <b>종목 이름이나 업종으로 찾는 주가와 AI 분석.</b></p>
 
-      <div className="search">
-        <div className="search-row">
-          <input className="search-in"
-            placeholder="종목 이름이나 티커 — 엔비디아, TSLA, 코카콜라…"
-            value={q}
-            onChange={e => setQ(e.target.value)}
-            onKeyDown={e => { if (e.key === 'Enter') run() }} />
-          <button className="search-btn" onClick={() => run()} disabled={busy}>
-            {busy ? '찾는 중…' : '검색'}
-          </button>
-        </div>
-        <div className="search-chips">
-          {(chips.length ? chips : COMPANIES.map(c => ({ ticker: c.t, name: c.n }))).map(c => (
-            <button key={c.ticker} className={`chip${found?.ticker === c.ticker ? ' on' : ''}`}
-              onClick={() => run(c.ticker)}>{c.name}</button>
-          ))}
-        </div>
-      </div>
-
-      {found?.status === 'none' && (
-        <div className="empty">
-          <p className="lead">
-            &lsquo;{found.query}&rsquo; 가 어느 종목인지 몰랐어요.
-            {found.hangul && <><br />지금은 미국에 상장된 종목만 찾을 수 있어요.</>}
-          </p>
-        </div>
-      )}
-      {found?.status === 'notfound' && (
-        <div className="empty">
-          <p className="lead">&lsquo;{found.ticker}&rsquo; 라는 종목이 없어요. 철자를 확인해 주세요.</p>
-        </div>
-      )}
-      {found?.status === 'failed' && (
-        <div className="empty"><p className="lead">서버에 연결하지 못했습니다. 잠시 후 다시 시도해 주세요.</p></div>
-      )}
-
-      {found?.status === 'ready' && <>
-        <QuoteCard q={found.quote} ticker={found.ticker} name={found.name}
-          volNote={found.volume_note} />
-
-        <StockDay d={found.intraday} ticker={found.ticker} />
-
-        {pts.length >= 2 && (
-          <div className="chartbox">
-            <p className="chartcap">날짜별 종가. 점선은 맨 왼쪽 날의 값</p>
-            <AxisChart pts={pts} baseline={pts[0].rate} baseName="시작"
-              color={rising ? '#4ade80' : '#f87171'}
-              label={`${found.ticker} 최근 ${pts.length}거래일 종가 추이`} />
-          </div>
-        )}
-
-        <div className="seg" />
-        <div className="label">💬 AI 브리핑</div>
-
-        {brief?.status === 'pending' && (
-          <div className="segbox">
-            <p className="segnote">
-              이 종목은 아직 설명이 없어요. 만드는 데 <b>5초에서 2분쯤</b> 걸립니다.
-            </p>
-            <button className="search-btn" onClick={make}>AI 브리핑 만들기</button>
-          </div>
-        )}
-        {brief?.status === 'working' && (
-          <div className="segbox">
-            <p className="segnote">읽고 있어요… {brief.elapsed ? `${brief.elapsed}초` : ''}</p>
-            <p className="segnote dim">다른 탭을 봐도 계속됩니다.</p>
-          </div>
-        )}
-        {brief?.status === 'error' && (
-          <div className="segbox">
-            <p className="segnote">{brief.message || '브리핑을 만들지 못했습니다.'}</p>
-            <button className="search-btn" onClick={make}>다시 시도</button>
-          </div>
-        )}
-
-        {brief?.status === 'ready' && <>
-          {!brief.precomputed && days.length === 1 && (
-            <p className="segnote dim">이 종목은 오늘 하루만 있어요. 위 버튼의 종목들은 날짜별로 쌓입니다.</p>
-          )}
-          <div className="scroll">
-            {days.map((x, i) => (
-              <button className={`day${i === 0 ? ' today' : ''}`} key={x.date} onClick={() => setSel(x)}>
-                <div className="day-top">{i === 0 && <span className="badge">최신</span>}<span>{x.date} ({dowOf(x.date)})</span></div>
-                <div className="day-metrics">
-                  <div className="metric"><span className="k">종가</span><span className="v">${x.close?.toFixed(2)} {chgHtml(x.change_pct)}</span></div>
-                  <div className="metric"><span className="k">거래량</span><span className="v">{fmtVol(x.volume)}</span></div>
-                  <span className={`flow ${flowClass(x.change_pct)}`}>{flowLabel(x.change_pct)}</span>
-                </div>
-                <div className="day-sum">{(x.ai_summary || '').slice(0, 52)}…</div>
-                <div className="day-foot"><span>관련 뉴스 {(x.news || []).length}건</span><span className="arrow">그날 정보 보기 →</span></div>
+      <div className="cols">
+        <div className="main">
+          <div className="search">
+            <div className="search-row">
+              <input className="search-in"
+                placeholder="종목 이름이나 티커 — 엔비디아, TSLA, 코카콜라…"
+                value={q}
+                onChange={e => setQ(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') run() }} />
+              <button className="search-btn" onClick={() => run()} disabled={busy}>
+                {busy ? '찾는 중…' : '검색'}
               </button>
-            ))}
+            </div>
+            <div className="search-chips">
+              {(chips.length ? chips : COMPANIES.map(c => ({ ticker: c.t, name: c.n }))).map(c => (
+                <button key={c.ticker} className={`chip${found?.ticker === c.ticker ? ' on' : ''}`}
+                  onClick={() => run(c.ticker)}>{c.name}</button>
+              ))}
+            </div>
           </div>
-        </>}
-      </>}
+
+          {found?.status === 'theme' && (
+            <div className="empty">
+              <p className="lead">
+                &lsquo;{found.query}&rsquo; 는 회사가 아니라 업종이에요.
+                <br />오른쪽에 <b>{found.theme}</b> 종목들을 띄웠어요. 하나를 누르면 여기서 자세히 볼 수 있어요.
+              </p>
+            </div>
+          )}
+          {found?.status === 'none' && (
+            <div className="empty">
+              <p className="lead">
+                &lsquo;{found.query}&rsquo; 가 어느 종목인지 몰랐어요.
+                {found.hangul && <><br />지금은 미국에 상장된 종목만 찾을 수 있어요.</>}
+                <br />오른쪽 업종 중에 있나 보세요.
+              </p>
+            </div>
+          )}
+          {found?.status === 'notfound' && (
+            <div className="empty">
+              <p className="lead">&lsquo;{found.ticker}&rsquo; 라는 종목이 없어요. 철자를 확인해 주세요.</p>
+            </div>
+          )}
+          {found?.status === 'failed' && (
+            <div className="empty"><p className="lead">서버에 연결하지 못했습니다. 잠시 후 다시 시도해 주세요.</p></div>
+          )}
+
+          {found?.status === 'ready' && <>
+            <QuoteCard q={found.quote} ticker={found.ticker} name={found.name}
+              volNote={found.volume_note} />
+
+            <StockDay d={found.intraday} ticker={found.ticker} />
+
+            {pts.length >= 2 && (
+              <div className="chartbox">
+                <p className="chartcap">날짜별 종가. 점선은 맨 왼쪽 날의 값</p>
+                <AxisChart pts={pts} baseline={pts[0].rate} baseName="시작"
+                  color={rising ? '#4ade80' : '#f87171'}
+                  label={`${found.ticker} 최근 ${pts.length}거래일 종가 추이`} />
+              </div>
+            )}
+
+            <div className="seg" />
+            <div className="label">💬 AI 브리핑</div>
+
+            {brief?.status === 'pending' && (
+              <div className="segbox">
+                <p className="segnote">
+                  이 종목은 아직 설명이 없어요. 만드는 데 <b>5초에서 2분쯤</b> 걸립니다.
+                </p>
+                <button className="search-btn" onClick={make}>AI 브리핑 만들기</button>
+              </div>
+            )}
+            {brief?.status === 'working' && (
+              <div className="segbox">
+                <p className="segnote">읽고 있어요… {brief.elapsed ? `${brief.elapsed}초` : ''}</p>
+                <p className="segnote dim">다른 탭을 봐도 계속됩니다.</p>
+              </div>
+            )}
+            {brief?.status === 'error' && (
+              <div className="segbox">
+                <p className="segnote">{brief.message || '브리핑을 만들지 못했습니다.'}</p>
+                <button className="search-btn" onClick={make}>다시 시도</button>
+              </div>
+            )}
+
+            {brief?.status === 'ready' && <>
+              {!brief.precomputed && days.length === 1 && (
+                <p className="segnote dim">이 종목은 오늘 하루만 있어요. 위 버튼의 종목들은 날짜별로 쌓입니다.</p>
+              )}
+              <div className="scroll">
+                {days.map((x, i) => (
+                  <button className={`day${i === 0 ? ' today' : ''}`} key={x.date} onClick={() => setSel(x)}>
+                    <div className="day-top">{i === 0 && <span className="badge">최신</span>}<span>{x.date} ({dowOf(x.date)})</span></div>
+                    <div className="day-metrics">
+                      <div className="metric"><span className="k">종가</span><span className="v">${x.close?.toFixed(2)} {chgHtml(x.change_pct)}</span></div>
+                      <div className="metric"><span className="k">거래량</span><span className="v">{fmtVol(x.volume)}</span></div>
+                      <span className={`flow ${flowClass(x.change_pct)}`}>{flowLabel(x.change_pct)}</span>
+                    </div>
+                    <div className="day-sum">{(x.ai_summary || '').slice(0, 52)}…</div>
+                    <div className="day-foot"><span>관련 뉴스 {(x.news || []).length}건</span><span className="arrow">그날 정보 보기 →</span></div>
+                  </button>
+                ))}
+              </div>
+            </>}
+          </>}
+        </div>
+
+        <aside className="side">
+          <ThemePanel chips={tchips} data={theme} cur={tcur} busy={tbusy}
+            onTheme={loadTheme} onStock={run} picked={found?.ticker} />
+        </aside>
+      </div>
 
       {sel && <Modal onClose={() => setSel(null)}>
         <div className="m-date">{sel.date} ({dowOf(sel.date)})</div>
@@ -1121,7 +1227,12 @@ function App() {
 
 const CSS = `
   body { background:#0f1117; color:#e6e8eb; font-family:system-ui,"Apple SD Gothic Neo",sans-serif; margin:0; }
-  .wrap { max-width:840px; margin:0 auto; padding:0 18px 60px; }
+  .wrap { max-width:1120px; margin:0 auto; padding:0 18px 60px; }
+/* 종목별 탭만 두 칼럼이라 넓다. 나머지 탭은 840px 그대로 보이게 묶어둔다 —
+   .wrap 을 넓히면 헤더·탭바도 같이 넓어지는데, 탭마다 폭이 바뀌면 탭을
+   누를 때 레이아웃이 튄다. 그래서 틀은 늘 1120px, 내용만 탭별로 정한다. */
+.panel { max-width:840px; margin:0 auto; }
+.panel.wide { max-width:none; }
   header { padding:24px 0 10px; }
   header h1 { margin:0; font-size:1.4rem; }
   header p { margin:5px 0 0; color:#8b93a1; font-size:.85rem; }
@@ -1352,6 +1463,50 @@ const CSS = `
 .segbox .search-btn { margin-top:4px; }
 .segnote.dim { color:#565e6b; }
 .qgrid .metric .sub { display:block; font-size:.66rem; color:#6b7280; margin-top:2px; }
+
+/* ── 두 칼럼 ───────────────────────────────────────── */
+.cols { display:flex; gap:20px; align-items:flex-start; }
+/* min-width:0 이 없으면 flex 항목이 내용 너비 밑으로 안 줄어들어 가로 스크롤이 생긴다 */
+.cols > .main { flex:1 1 660px; min-width:0; }
+.cols > .side { flex:0 0 384px; }
+@media (max-width:980px) {
+  .cols { flex-direction:column; }
+  .cols > .main, .cols > .side { flex:none; width:100%; }
+  /* 좁은 화면에서는 고르는 쪽이 먼저 */
+  .cols > .side { order:-1; }
+}
+
+/* ── 업종 패널 ─────────────────────────────────────── */
+.tpanel { background:#141821; border:1px solid #222836; border-radius:14px; padding:14px 14px 12px; }
+.tpanel .label { margin-top:0; }
+.tchips { display:flex; flex-wrap:wrap; gap:6px; margin:8px 0 12px; }
+.tchips .chip { padding:5px 10px; font-size:.76rem; }
+.thead { display:flex; align-items:baseline; justify-content:space-between; gap:8px;
+         padding-top:10px; border-top:1px solid #222836; }
+.tname { font-size:.92rem; font-weight:700; color:#e6e8eb; }
+.tdate { font-size:.68rem; color:#6b7280; font-variant-numeric:tabular-nums; }
+.tindex { display:flex; align-items:baseline; gap:8px; margin-top:9px; padding:8px 10px;
+          background:#1a1f2b; border-radius:8px; }
+.tix-n { flex:1 1 auto; font-size:.74rem; color:#8b93a1; }
+.tix-v { font-size:.86rem; font-weight:600; color:#e6e8eb; font-variant-numeric:tabular-nums; }
+.tix-p { font-size:.76rem; font-weight:600; font-variant-numeric:tabular-nums; }
+.tstat { margin-top:11px; }
+.tshape { font-size:.82rem; font-weight:600; color:#e6e8eb; }
+.ttally { font-size:.72rem; color:#8b93a1; margin-top:3px; font-variant-numeric:tabular-nums; }
+.todd { font-size:.72rem; color:#fbbf24; line-height:1.55; margin-top:7px;
+        padding:7px 9px; background:#2a2310; border-radius:7px; }
+.trows { display:flex; flex-direction:column; gap:3px; margin:12px 0 8px; }
+.trow { display:flex; align-items:baseline; gap:7px; width:100%; padding:7px 8px;
+        background:transparent; border:1px solid transparent; border-radius:7px;
+        cursor:pointer; font:inherit; text-align:left; }
+.trow:hover { background:#1a1f2b; border-color:#2b3240; }
+.trow.on { background:#12351f; border-color:#1c4a2b; }
+.tr-tk { flex:0 0 46px; font-size:.72rem; font-weight:700; color:#8b93a1; }
+.tr-nm { flex:1 1 auto; font-size:.76rem; color:#e6e8eb; overflow:hidden;
+         text-overflow:ellipsis; white-space:nowrap; }
+.tr-pr { font-size:.76rem; color:#8b93a1; font-variant-numeric:tabular-nums; }
+.tr-pc { flex:0 0 58px; text-align:right; font-size:.76rem; font-weight:600;
+         font-variant-numeric:tabular-nums; }
 .dayhead { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:6px; }
 .daylabel { font-size:.78rem; font-weight:600; color:#8b93a1; font-variant-numeric:tabular-nums; }
 `
