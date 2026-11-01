@@ -454,15 +454,26 @@ function ArticlesTab() {
 }
 
 // ===== 탭 2: 종목별 =====
-function fmtCap(v) {
+// 통화는 종목마다 다르다. 달러는 소수점 둘, 원화는 없음, 지수는 단위 없음.
+// 화면에 $ 를 박아두면 삼성전자가 "$225000.00" 이 된다.
+function money(v, c) {
+  if (v == null) return '—'
+  const d = c?.decimals ?? 2
+  const n = v.toLocaleString(undefined, { minimumFractionDigits: d, maximumFractionDigits: d })
+  if (c?.symbol) return c.symbol + n
+  return n + (c?.unit ? c.unit : '')
+}
+
+function fmtCap(v, c) {
   if (!v) return '—'
-  if (v >= 1e12) return (v / 1e12).toFixed(2) + '조 달러'
-  if (v >= 1e8) return Math.round(v / 1e8).toLocaleString() + '억 달러'
-  return v.toLocaleString() + ' 달러'
+  const u = c?.unit || '달러'
+  if (v >= 1e12) return (v / 1e12).toFixed(2) + '조 ' + u
+  if (v >= 1e8) return Math.round(v / 1e8).toLocaleString() + '억 ' + u
+  return v.toLocaleString() + ' ' + u
 }
 
 // 52주 범위에서 현재가가 어디인가. 숫자 두 개보다 막대 하나가 빠르게 읽힌다
-function W52Bar({ lo, hi, pos, cur }) {
+function W52Bar({ lo, hi, pos, cur, c }) {
   if (lo == null || hi == null || pos == null) return null
   return (
     <div className="w52">
@@ -471,9 +482,9 @@ function W52Bar({ lo, hi, pos, cur }) {
         <div className="w52-dot" style={{ left: `${(pos * 100).toFixed(1)}%` }} />
       </div>
       <div className="w52-bot">
-        <span>${lo.toFixed(2)}</span>
-        <span className="w52-cur">현재 ${cur.toFixed(2)}</span>
-        <span>${hi.toFixed(2)}</span>
+        <span>{money(lo, c)}</span>
+        <span className="w52-cur">현재 {money(cur, c)}</span>
+        <span>{money(hi, c)}</span>
       </div>
     </div>
   )
@@ -497,10 +508,10 @@ function QuoteCard({ q, ticker, name, volNote }) {
       </div>
 
       <div className="qprice">
-        <span className={`qnow ${col}`}>${q.price?.toFixed(2)}</span>
+        <span className={`qnow ${col}`}>{money(q.price, q)}</span>
         {q.chg != null && (
           <span className={`qchg ${col}`}>
-            {up ? '▲' : down ? '▼' : '▬'} {Math.abs(q.chg).toFixed(2)} ({q.pct > 0 ? '+' : ''}{q.pct}%)
+            {up ? '▲' : down ? '▼' : '▬'} {money(Math.abs(q.chg), q)} ({q.pct > 0 ? '+' : ''}{q.pct}%)
           </span>
         )}
       </div>
@@ -512,7 +523,7 @@ function QuoteCard({ q, ticker, name, volNote }) {
 
       {q.ext_price != null && (
         <div className="qext">
-          {q.ext_label} ${q.ext_price.toFixed(2)}
+          {q.ext_label} {money(q.ext_price, q)}
           {q.ext_pct != null && <> ({q.ext_pct > 0 ? '+' : ''}{q.ext_pct}%)</>}
         </div>
       )}
@@ -523,19 +534,19 @@ function QuoteCard({ q, ticker, name, volNote }) {
           <span className="v">{fmtVol(q.volume)}</span>
           {volNote && <span className="sub">{volNote.split(' — ')[1] || volNote}</span>}
         </div>
-        <div className="metric"><span className="k">시가총액</span><span className="v">{fmtCap(q.market_cap)}</span></div>
+        <div className="metric"><span className="k">시가총액</span><span className="v">{fmtCap(q.market_cap, q)}</span></div>
         <div className="metric"><span className="k">PER</span><span className="v">{q.pe != null ? q.pe.toFixed(1) : '—'}</span></div>
         <div className="metric"><span className="k">거래소</span><span className="v">{q.exchange || '—'}</span></div>
       </div>
 
-      <W52Bar lo={q.w52_low} hi={q.w52_high} pos={q.w52_pos} cur={q.price} />
+      <W52Bar lo={q.w52_low} hi={q.w52_high} pos={q.w52_pos} cur={q.price} c={q} />
     </div>
   )
 }
 
 // 하루 안의 움직임. 미 동부 시각으로 그린다 — 한국 시각으로 바꾸면
 // 23:30 에 시작해 다음날 06:00 에 끝나서 '하루' 로 읽히지 않는다.
-function StockDay({ d, ticker }) {
+function StockDay({ d, ticker, c }) {
   if (!d || !d.points || d.points.length < 2) return null
   const pts = d.points.map(p => ({ t: p.t, rate: p.price }))
   const up = d.chg > 0, down = d.chg < 0
@@ -544,16 +555,17 @@ function StockDay({ d, ticker }) {
       <div className="dayhead">
         <span className="daylabel">{d.session} 장</span>
         <span className={`qchg ${up ? 'up' : down ? 'down' : ''}`}>
-          시작 대비 {up ? '▲' : down ? '▼' : '▬'} {Math.abs(d.chg).toFixed(2)}
+          시작 대비 {up ? '▲' : down ? '▼' : '▬'} {money(Math.abs(d.chg), c)}
           {d.pct != null && <> ({d.pct > 0 ? '+' : ''}{d.pct}%)</>}
         </span>
       </div>
       <AxisChart pts={pts} baseline={d.open} baseName="시작"
         color={up ? '#4ade80' : down ? '#f87171' : '#8b93a1'}
+        fmt={v => money(v, c)}
         label={`${ticker} ${d.session} 장중 5분 단위 주가`} />
       <p className="chartcap">
         {d.open_at}에 열고 {d.close_at}에 닫은 장 ({d.tz} 시각).
-        한국 시각으로는 밤 11시 30분부터 다음날 아침 6시까지예요.
+        {!d.kr && <> 한국 시각으로는 밤 11시 30분부터 다음날 아침 6시까지예요.</>}
       </p>
     </div>
   )
@@ -569,12 +581,21 @@ function ThemePanel({ chips, data, cur, busy, onTheme, onStock, picked }) {
     <div className="tpanel">
       <div className="label">업종으로 찾기</div>
       <p className="segnote dim">회사 이름을 몰라도 찾아갈 수 있어요.</p>
-      <div className="tchips">
-        {chips.map(c => (
-          <button key={c.key} className={`chip${cur === c.key ? ' on' : ''}`}
-            onClick={() => onTheme(c.key)}>{c.short}</button>
-        ))}
-      </div>
+      {['미국', '한국'].map(mkt => {
+        const row = chips.filter(c => (c.market || '미국') === mkt)
+        if (!row.length) return null
+        return (
+          <div key={mkt}>
+            <div className="tmkt">{mkt}</div>
+            <div className="tchips">
+              {row.map(c => (
+                <button key={c.key} className={`chip${cur === c.key ? ' on' : ''}`}
+                  onClick={() => onTheme(c.key)}>{c.short}</button>
+              ))}
+            </div>
+          </div>
+        )
+      })}
 
       {busy && <p className="segnote dim">받아오는 중…</p>}
 
@@ -587,7 +608,7 @@ function ThemePanel({ chips, data, cur, busy, onTheme, onStock, picked }) {
         {data.index && (
           <div className="tindex">
             <span className="tix-n">{data.index.name}</span>
-            <span className="tix-v">{data.index.price.toLocaleString()}</span>
+            <span className="tix-v">{data.index.price.toLocaleString()}{data.index.unit || ''}</span>
             <span className={`tix-p ${data.index.pct > 0 ? 'up' : data.index.pct < 0 ? 'down' : ''}`}>
               {data.index.pct > 0 ? '+' : ''}{data.index.pct}%
             </span>
@@ -609,6 +630,7 @@ function ThemePanel({ chips, data, cur, busy, onTheme, onStock, picked }) {
               <span className="tr-nm">{x.name}</span>
               <span className="tr-pr">
                 {x.price.toLocaleString()}
+                {x.unit === '원' && <span className="tr-u">원</span>}
                 {x.stale && <span className="tr-old"> {x.date.slice(5)}</span>}
               </span>
               <span className={`tr-pc ${x.pct > 0 ? 'up' : x.pct < 0 ? 'down' : ''}`}>
@@ -757,13 +779,14 @@ function StocksTab() {
             <QuoteCard q={found.quote} ticker={found.ticker} name={found.name}
               volNote={found.volume_note} />
 
-            <StockDay d={found.intraday} ticker={found.ticker} />
+            <StockDay d={found.intraday} ticker={found.ticker} c={found.quote} />
 
             {pts.length >= 2 && (
               <div className="chartbox">
                 <p className="chartcap">날짜별 종가. 점선은 맨 왼쪽 날의 값</p>
                 <AxisChart pts={pts} baseline={pts[0].rate} baseName="시작"
                   color={rising ? '#4ade80' : '#f87171'}
+                  fmt={v => money(v, found.quote)}
                   label={`${found.ticker} 최근 ${pts.length}거래일 종가 추이`} />
               </div>
             )}
@@ -801,7 +824,7 @@ function StocksTab() {
                   <button className={`day${i === 0 ? ' today' : ''}`} key={x.date} onClick={() => setSel(x)}>
                     <div className="day-top">{i === 0 && <span className="badge">최신</span>}<span>{x.date} ({dowOf(x.date)})</span></div>
                     <div className="day-metrics">
-                      <div className="metric"><span className="k">종가</span><span className="v">${x.close?.toFixed(2)} {chgHtml(x.change_pct)}</span></div>
+                      <div className="metric"><span className="k">종가</span><span className="v">{money(x.close, found?.quote)} {chgHtml(x.change_pct)}</span></div>
                       <div className="metric"><span className="k">거래량</span><span className="v">{fmtVol(x.volume)}</span></div>
                       <span className={`flow ${flowClass(x.change_pct)}`}>{flowLabel(x.change_pct)}</span>
                     </div>
@@ -824,7 +847,7 @@ function StocksTab() {
         <div className="m-date">{sel.date} ({dowOf(sel.date)})</div>
         <h2 className="m-title">{found?.ticker} · {found?.name}</h2>
         <div className="m-row">
-          <div className="metric"><span className="k">종가</span><span className="v big">${sel.close?.toFixed(2)} {chgHtml(sel.change_pct)}</span></div>
+          <div className="metric"><span className="k">종가</span><span className="v big">{money(sel.close, found?.quote)} {chgHtml(sel.change_pct)}</span></div>
           <div className="metric"><span className="k">거래량</span><span className="v big">{fmtVol(sel.volume)}</span></div>
           <div className="metric"><span className="k">흐름</span><span className={`flow ${flowClass(sel.change_pct)}`}>{flowLabel(sel.change_pct)}</span></div>
         </div>
@@ -952,7 +975,7 @@ function fxStamp(v) {
 //   · 가로 눈금에 고가·시작가·저가의 실제 원화 값을 적고
 //   · 두 축이 각각 무엇인지 그래프 아래에 쓴다
 // 선 모양만으로는 "얼마나" 움직였는지 알 수 없다.
-function AxisChart({ pts, baseline, baseName, color, label }) {
+function AxisChart({ pts, baseline, baseName, color, label, fmt }) {
   if (!pts || pts.length < 2) return null
   const W = 600, H = 172
   // padR 은 눈금 라벨("시작 1334.28")이 들어갈 자리다. 좁으면 글자가 잘린다.
@@ -996,7 +1019,7 @@ function AxisChart({ pts, baseline, baseName, color, label }) {
         <g key={t.name}>
           {t.name !== baseName &&
             <line x1={padL} y1={py(t.v)} x2={W - padR} y2={py(t.v)} className="gl" />}
-          <text x={W - padR + 7} y={py(t.v) + 4} className="axl">{t.name} {t.v.toFixed(2)}</text>
+          <text x={W - padR + 7} y={py(t.v) + 4} className="axl">{t.name} {(fmt || (v => v.toFixed(2)))(t.v)}</text>
         </g>
       ))}
       <polygon points={area} fill={color} opacity="0.12" />
@@ -1482,7 +1505,8 @@ const CSS = `
 /* ── 업종 패널 ─────────────────────────────────────── */
 .tpanel { background:#141821; border:1px solid #222836; border-radius:14px; padding:14px 14px 12px; }
 .tpanel .label { margin-top:0; }
-.tchips { display:flex; flex-wrap:wrap; gap:6px; margin:8px 0 12px; }
+.tmkt { font-size:.66rem; font-weight:700; color:#565e6b; letter-spacing:.06em; margin:9px 0 5px; }
+.tchips { display:flex; flex-wrap:wrap; gap:6px; margin:0 0 8px; }
 .tchips .chip { padding:5px 10px; font-size:.76rem; }
 .thead { display:flex; align-items:baseline; justify-content:space-between; gap:8px;
          padding-top:10px; border-top:1px solid #222836; }
@@ -1511,6 +1535,7 @@ const CSS = `
 /* 그 줄만 거래일이 다를 때 — 지금은 미국 상장만 넣어서 안 나오지만,
    나중에 휴장일이 다른 시장을 넣으면 화면이 조용히 거짓말하는 것을 막는다 */
 .tr-old { font-size:.64rem; color:#fbbf24; }
+.tr-u { font-size:.64rem; color:#6b7280; }
 .tr-pc { flex:0 0 58px; text-align:right; font-size:.76rem; font-weight:600;
          font-variant-numeric:tabular-nums; }
 .dayhead { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:6px; }

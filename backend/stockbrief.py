@@ -30,6 +30,32 @@ NEWS_DAYS = 7      # 며칠치 뉴스를 재료로 쓰나
 NEWS_MAX = 5       # AI 에게 보여줄 제목 수 (company_curate.py 와 같게)
 
 
+def _fetch_korea_news(name):
+    """한국 종목 뉴스 — Google 뉴스 RSS(한국어).
+
+    Finnhub 는 한국 상장을 거의 안 다룬다. 005930.KS 로 물어보면 0건이다.
+    단어 검색에서 '현대차' 가 0건이던 것과 같은 문제고, 그때 만든
+    rss_search.fetch() 가 이미 한국어 기사를 받아온다. 그대로 쓴다.
+
+    회사 이름으로 찾는다 — 종목 코드로는 기사가 안 걸린다.
+    """
+    try:
+        import rss_search
+        rows = rss_search.fetch(name, days=NEWS_DAYS)
+    except Exception as e:
+        print(f"  한국 뉴스 받기 실패 {name}: {e.__class__.__name__} — 수치만으로 진행")
+        return []
+    out = []
+    for title, _src, _stamp, _url in rows:
+        title = (title or "").strip()
+        if not title or is_junk(title):
+            continue
+        out.append(title)
+        if len(out) >= NEWS_MAX:
+            break
+    return out
+
+
 def _fetch_company_news(ticker):
     """Finnhub 종목 뉴스. 실패하면 빈 목록 — 수치만으로도 브리핑은 만든다."""
     if not FINNHUB_KEY:
@@ -85,9 +111,12 @@ def _prompt(name, ticker, date, close, change, volume, titles, vol_note=None,
     if volume and vol_note:
         vol_txt += f" ({vol_note})"
     chg_txt = f"전일 대비 {change}%" if change is not None else "전일 대비 미확인"
-    unit = "달러" if (currency or "USD").upper() == "USD" else currency
-    return f"""{name}({ticker})의 {date} 주식 상황이다. 미국 상장 종목이고 금액 단위는 {unit}다.
-종가 {close}{unit}, {chg_txt}, {vol_txt}. (추정 흐름: {_flow(change)})
+    cur = (currency or "USD").upper()
+    unit = {"USD": "달러", "KRW": "원"}.get(cur, cur)
+    where = "한국 상장" if cur == "KRW" else "미국 상장"
+    shown = f"{close:,}" if isinstance(close, (int, float)) else close
+    return f"""{name}({ticker})의 {date} 주식 상황이다. {where} 종목이고 금액 단위는 {unit}다.
+종가 {shown}{unit}, {chg_txt}, {vol_txt}. (추정 흐름: {_flow(change)})
 관련 뉴스(번호순):
 {numbered}
 
@@ -95,7 +124,7 @@ def _prompt(name, ticker, date, close, change, volume, titles, vol_note=None,
 매수세/매도세는 거래량과 등락으로 추정해 표현하고, 뉴스가 있으면 왜 그렇게 움직였는지 연결하라.
 뉴스가 없으면 수치만으로 설명하고, 없는 이유를 추측해 쓰지 마라.
 **거래량이 많다/적다는 위에 적힌 비교만 근거로 쓰고, 비교가 없으면 거래량의 많고 적음을 언급하지 마라.**
-**금액 단위는 {unit}다. 절대 '원' 으로 쓰지 마라 — 미국 주식이다.**
+**금액 단위는 {unit}다. 다른 통화로 바꿔 쓰지 마라.**
 또한 위 뉴스 각각이 이 회사(주가)에 주는 영향을 분류하라. 판단 기준:
 - 유리한 소식(실적 호조, 성장·수요 증가, 호재, 파트너십, 신제품 등) → '긍정'
 - 불리한 소식(실적 부진, 규제·소송·악재, 수요 둔화, 경쟁 심화 등) → '부정'
@@ -168,7 +197,9 @@ def build(ticker, name, quote, redo=False):
             conn.close()
             return dict(row)
 
-    titles = _fetch_company_news(ticker)
+    is_kr = ticker.endswith((".KS", ".KQ")) or ticker.startswith("^KS") \
+        or ticker.startswith("^KQ")
+    titles = _fetch_korea_news(name) if is_kr else _fetch_company_news(ticker)
     close = quote.get("price")
     change = quote.get("pct")
     volume = quote.get("volume")

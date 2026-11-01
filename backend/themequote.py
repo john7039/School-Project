@@ -36,8 +36,15 @@ def _num(v):
     return None if f != f else f
 
 
+def _is_kr(sym):
+    return sym.endswith((".KS", ".KQ")) or sym.startswith(("^KS", "^KQ"))
+
+
 def _rows(symbols):
-    """[{symbol, price, prev, chg, pct}] — 받아오지 못한 심볼은 빠진다."""
+    """[{symbol, price, prev, chg, pct}] — 받아오지 못한 심볼은 빠진다.
+
+    원화 종목은 소수점을 버린다. '225000.00원' 은 읽기만 나쁘다.
+    """
     import yfinance as yf
     try:
         h = yf.download(" ".join(symbols), period="7d", interval="1d",
@@ -61,13 +68,19 @@ def _rows(symbols):
         if price is None or prev is None or prev == 0:
             continue
         day = closes.index[-1].strftime("%Y-%m-%d")
+        dp = 0 if _is_kr(sym) else 2
+
+        def r(v):
+            return round(v, dp) if dp else round(v)
+
         out.append({
             "symbol": sym,
-            "price": round(price, 2),
-            "prev": round(prev, 2),
-            "chg": round(price - prev, 2),
+            "price": r(price),
+            "prev": r(prev),
+            "chg": r(price - prev),
             "pct": round((price - prev) / prev * 100, 2),
             "date": day,
+            "unit": "" if sym.startswith("^") else ("원" if dp == 0 else "달러"),
         })
 
     # 거래일이 섞이면 안 된다.
@@ -171,10 +184,15 @@ def load(key, use_cache=True):
     # 많이 오른 것부터 — 위가 오른 쪽, 아래가 내린 쪽
     items.sort(key=lambda x: x["pct"], reverse=True)
 
+    # 한 업종 안에서는 통화가 하나여야 비교가 된다. themes.py 가 시장을
+    # 나눠 뒀으므로 섞일 일이 없지만, 섞이면 화면이 조용히 틀린다.
+    units = {r.get("unit") for r in rows if not r["symbol"].startswith("^")}
     out = {
         "key": key,
         "name": t["name"],
         "short": t["short"],
+        "unit": next(iter(units)) if len(units) == 1 else "달러",
+        "mixed_unit": len(units) > 1,
         "date": last_day,
         "index": index,
         "items": items,

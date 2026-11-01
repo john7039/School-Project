@@ -48,8 +48,27 @@ def _ts(unix):
         return None
 
 
-def _trade_date(unix):
-    """그 시세가 '어느 거래일' 것인가 — 미국 동부 시각으로 잘라야 한다.
+# 통화로 거래소 시간대를 안다. 거래일은 그 거래소의 시각으로 잘라야 한다.
+#
+# 미국만 있을 때는 America/New_York 으로 고정해도 됐다. 한국 종목이 들어오면
+# 달라진다 — 삼성전자가 10-30 15:30(KST)에 마감하면 거래일은 10-30 인데,
+# 뉴욕 시각으로 자르면 10-30 02:30 이라 우연히 같을 뿐이다. 우연에 기대면
+# 언젠가 하루 어긋난다. 환율의 '하루' 를 자정으로 잡았다가 틀린 자리와 같다.
+EXCHANGE_TZ = {"KRW": "Asia/Seoul", "USD": "America/New_York"}
+DEFAULT_TZ = "America/New_York"
+
+# 통화 표기
+CURRENCY = {"USD": {"unit": "달러", "sym": "$", "decimals": 2},
+            "KRW": {"unit": "원", "sym": "", "decimals": 0}}
+
+
+def currency_info(code):
+    return CURRENCY.get((code or "USD").upper(),
+                        {"unit": (code or "").upper(), "sym": "", "decimals": 2})
+
+
+def _trade_date(unix, currency="USD"):
+    """그 시세가 '어느 거래일' 것인가 — 거래소 시각으로 잘라야 한다.
 
     ⚠️ 한국 시각으로 자르면 하루 어긋난다.
     금요일 미국 종가(16:00 EDT)는 한국시간 토요일 05:00 이다. KST 로 날짜를
@@ -60,16 +79,18 @@ def _trade_date(unix):
     u = _num(unix)
     if not u:
         return None
+    tzname = EXCHANGE_TZ.get((currency or "USD").upper(), DEFAULT_TZ)
     try:
         from zoneinfo import ZoneInfo
-        et = datetime.datetime.fromtimestamp(u, ZoneInfo("America/New_York"))
-        return et.date().isoformat()
+        local = datetime.datetime.fromtimestamp(u, ZoneInfo(tzname))
+        return local.date().isoformat()
     except Exception:
-        # 시간대 정보가 없는 환경이면 UTC-5 로 근사한다 (여름시간 때 1시간 오차가
-        # 생기지만, 날짜가 바뀌는 자정 근처가 아니면 결과는 같다)
+        # 시간대 정보가 없는 환경이면 고정 시차로 근사한다 (여름시간 때 1시간
+        # 오차가 생기지만, 날짜가 바뀌는 자정 근처가 아니면 결과는 같다)
+        off = 9 if tzname == "Asia/Seoul" else -5
         try:
             return (datetime.datetime.utcfromtimestamp(u)
-                    - datetime.timedelta(hours=5)).date().isoformat()
+                    + datetime.timedelta(hours=off)).date().isoformat()
         except (OSError, OverflowError, ValueError):
             return None
 
@@ -100,6 +121,13 @@ def quote(ticker, use_cache=True):
     price = _num(info.get("regularMarketPrice"))
     if price is None:
         return None               # 존재하지 않는 티커. 야후는 빈 info 를 준다
+    cur = (info.get("currency") or "USD").upper()
+    ci = currency_info(cur)
+    dp = ci["decimals"]
+    # 지수는 통화가 아니다. 야후는 ^KS11 의 currency 를 KRW 로 주지만
+    # 코스피 5,731 은 '5,731원' 이 아니라 지수값이다. 단위를 떼야 한다.
+    if t.startswith("^"):
+        ci = dict(ci, unit="", sym="")
 
     prev = _num(info.get("regularMarketPreviousClose"))
     raw_state = (info.get("marketState") or "CLOSED").upper()
@@ -125,24 +153,27 @@ def quote(ticker, use_cache=True):
         "ticker": t,
         "short_name": info.get("shortName") or t,
         "long_name": info.get("longName") or info.get("shortName") or t,
-        "currency": info.get("currency") or "USD",
+        "currency": cur,
+        "unit": ci["unit"],
+        "symbol": ci["sym"],
+        "decimals": dp,
         "exchange": info.get("exchange") or "",
         "market_state": raw_state,
         "state_ko": state_ko,
         "state_note": state_note,
-        "price": round(price, 2),
-        "prev_close": round(prev, 2) if prev is not None else None,
-        "chg": round(price - prev, 2) if prev is not None else None,
+        "price": round(price, dp) if dp else round(price),
+        "prev_close": (round(prev, dp) if dp else round(prev)) if prev is not None else None,
+        "chg": (round(price - prev, dp) if dp else round(price - prev)) if prev is not None else None,
         "pct": _num(info.get("regularMarketChangePercent")),
         "quote_time": _ts(info.get("regularMarketTime")),
-        "trade_date": _trade_date(info.get("regularMarketTime")),
+        "trade_date": _trade_date(info.get("regularMarketTime"), cur),
         "volume": info.get("regularMarketVolume"),
         "market_cap": info.get("marketCap"),
         "pe": _num(info.get("trailingPE")),
-        "w52_high": round(hi, 2) if hi is not None else None,
-        "w52_low": round(lo, 2) if lo is not None else None,
+        "w52_high": (round(hi, dp) if dp else round(hi)) if hi is not None else None,
+        "w52_low": (round(lo, dp) if dp else round(lo)) if lo is not None else None,
         "w52_pos": round(pos, 4) if pos is not None else None,
-        "ext_price": round(ext_price, 2) if ext_price is not None else None,
+        "ext_price": (round(ext_price, dp) if dp else round(ext_price)) if ext_price is not None else None,
         "ext_pct": ext_pct,
         "ext_label": ext_label if ext_price is not None else None,
         "fetched_at": datetime.datetime.now().isoformat(timespec="seconds"),
@@ -163,11 +194,14 @@ def history(ticker, days=30):
     [{"date": "2026-10-30", "close": 204.64, "volume": 165923799}, ...]
     """
     import yfinance as yf
+    t = ticker.upper()
+    # 원화 종목은 소수점이 의미가 없다 — 225000.00원 은 읽기만 나쁘다
+    dp = 0 if t.endswith((".KS", ".KQ")) else 2
     try:
-        h = yf.Ticker(ticker.upper()).history(period=f"{max(days + 10, 40)}d",
+        h = yf.Ticker(t).history(period=f"{max(days + 10, 40)}d",
                                               interval="1d")
     except Exception as e:
-        print(f"  추이 조회 실패 {ticker}: {e.__class__.__name__}")
+        print(f"  추이 조회 실패 {t}: {e.__class__.__name__}")
         return []
     out = []
     for idx, row in h.iterrows():
@@ -175,7 +209,8 @@ def history(ticker, days=30):
         if c is None:
             continue
         v = _num(row.get("Volume"))
-        out.append({"date": idx.strftime("%Y-%m-%d"), "close": round(c, 2),
+        out.append({"date": idx.strftime("%Y-%m-%d"),
+                    "close": round(c, dp) if dp else round(c),
                     "volume": int(v) if v else None})
     return out[-days:]
 
@@ -228,6 +263,8 @@ def intraday(ticker):
     """
     import yfinance as yf
     t = (ticker or "").upper().strip()
+    kr = t.endswith((".KS", ".KQ"))
+    dp = 0 if kr else 2
     try:
         h = yf.Ticker(t).history(period="1d", interval="5m")
     except Exception as e:
@@ -241,22 +278,27 @@ def intraday(ticker):
         c = _num(row.get("Close"))
         if c is None:
             continue
-        pts.append({"t": idx.strftime("%H:%M"), "price": round(c, 2)})
+        pts.append({"t": idx.strftime("%H:%M"),
+                    "price": round(c, dp) if dp else round(c)})
         closes.append(c)
     if len(pts) < 2:
         return None
 
+    def r(v):
+        return round(v, dp) if dp else round(v)
+
     op, last = closes[0], closes[-1]
     return {
         "session": h.index[0].strftime("%Y-%m-%d"),
-        "tz": "미국 동부",
+        "tz": "한국" if kr else "미국 동부",
+        "kr": kr,
         "open_at": pts[0]["t"],
         "close_at": pts[-1]["t"],
         "points": pts,
-        "open": round(op, 2),
-        "last": round(last, 2),
-        "high": round(max(closes), 2),
-        "low": round(min(closes), 2),
-        "chg": round(last - op, 2),
+        "open": r(op),
+        "last": r(last),
+        "high": r(max(closes)),
+        "low": r(min(closes)),
+        "chg": r(last - op),
         "pct": round((last - op) / op * 100, 2) if op else None,
     }
