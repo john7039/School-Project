@@ -613,7 +613,7 @@ function StocksTab() {
 
   return (
     <div className="panel">
-      <p className="lead">📈 <b>종목을 찾아 그날 상황을 봅니다.</b> 주가와 거래량, 1년 중 지금 위치를 보여주고 AI가 왜 움직였는지 설명해요.</p>
+      <p className="lead">📈 <b>종목 이름으로 찾는 주가와 AI 분석.</b></p>
 
       <div className="search">
         <div className="search-row">
