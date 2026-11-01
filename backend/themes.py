@@ -17,7 +17,8 @@ THEMES = {
     "반도체": {
         "short": "반도체",
         "name": "반도체",
-        "tickers": ["NVDA", "AMD", "TSM", "AVGO", "MU", "INTC", "ASML", "LRCX"],
+        "tickers": ["NVDA", "AMD", "TSM", "AVGO", "QCOM",
+                    "MU", "INTC", "ARM", "ASML", "AMAT"],
         "index": ("SOXX", "반도체 ETF"),
         "aliases": ["반도체", "칩", "메모리", "semiconductor", "chip", "chips",
                     "파운드리", "gpu"],
@@ -25,7 +26,8 @@ THEMES = {
     "유가": {
         "short": "유가",
         "name": "유가 · 에너지",
-        "tickers": ["XOM", "CVX", "COP", "SLB"],
+        "tickers": ["XOM", "CVX", "SHEL", "BP", "TTE",
+                    "EQNR", "PBR", "COP", "OXY", "SLB"],
         "index": ("CL=F", "WTI 유가"),
         "aliases": ["유가", "석유", "원유", "정유", "에너지", "oil", "crude",
                     "wti", "brent", "기름"],
@@ -33,36 +35,38 @@ THEMES = {
     "자동차": {
         "short": "자동차",
         "name": "자동차 · 전기차",
-        "tickers": ["TSLA", "F", "GM", "RIVN"],
+        "tickers": ["TSLA", "TM", "F", "GM", "HMC", "STLA", "RIVN", "LCID", "NIO"],
         "index": None,
         "aliases": ["자동차", "전기차", "완성차", "ev", "car", "auto", "배터리차"],
     },
     "빅테크": {
         "short": "빅테크",
         "name": "빅테크",
-        "tickers": ["AAPL", "MSFT", "GOOGL", "AMZN", "META", "NFLX"],
+        "tickers": ["AAPL", "MSFT", "GOOGL", "AMZN", "META", "NVDA", "TSLA"],
         "index": ("QQQ", "나스닥100 ETF"),
         "aliases": ["빅테크", "기술주", "테크", "it", "bigtech", "플랫폼",
-                    "매그니피센트", "m7"],
+                    "매그니피센트", "m7", "매그니피센트7", "마그니피센트"],
     },
     "금융": {
         "short": "금융",
         "name": "금융 · 은행",
-        "tickers": ["JPM", "BAC", "GS", "V", "MA"],
+        "tickers": ["JPM", "BAC", "WFC", "C", "GS", "MS", "V", "MA", "AXP", "BLK"],
         "index": ("^TNX", "미 10년물 금리"),
         "aliases": ["금융", "은행", "카드", "금융주", "bank", "증권"],
     },
     "소비": {
         "short": "소비",
         "name": "소비 · 유통",
-        "tickers": ["WMT", "COST", "HD", "MCD", "KO", "NKE", "SBUX"],
+        "tickers": ["WMT", "COST", "HD", "TGT", "MCD",
+                    "SBUX", "KO", "PEP", "PG", "NKE"],
         "index": None,
         "aliases": ["소비", "유통", "소비재", "소매", "retail", "먹거리", "식품"],
     },
     "헬스케어": {
         "short": "헬스케어",
         "name": "헬스케어 · 제약",
-        "tickers": ["JNJ", "PFE", "LLY", "UNH", "ABBV", "MRNA"],
+        "tickers": ["LLY", "JNJ", "MRK", "ABBV", "PFE",
+                    "AMGN", "BMY", "UNH", "TMO", "NVO"],
         "index": None,
         "aliases": ["헬스케어", "제약", "바이오", "의료", "pharma", "health",
                     "백신", "신약"],
@@ -70,14 +74,23 @@ THEMES = {
     "항공방산": {
         "short": "방산",
         "name": "항공 · 방산",
-        "tickers": ["BA", "LMT", "RTX", "NOC"],
+        "tickers": ["BA", "LMT", "RTX", "NOC", "GD", "LHX", "HII"],
         "index": None,
         "aliases": ["항공", "방산", "우주", "defense", "무기", "비행기"],
+    },
+    "소프트웨어": {
+        "short": "소프트웨어",
+        "name": "소프트웨어 · 플랫폼",
+        "tickers": ["ORCL", "CRM", "ADBE", "PLTR", "SNOW",
+                    "NFLX", "UBER", "ABNB", "SHOP", "COIN"],
+        "index": None,
+        "aliases": ["소프트웨어", "플랫폼", "클라우드", "saas", "software",
+                    "구독", "앱"],
     },
     "지수": {
         "short": "지수",
         "name": "미국 지수",
-        "tickers": ["SPY", "QQQ", "DIA"],
+        "tickers": ["SPY", "QQQ", "DIA", "IWM", "VTI"],
         "index": ("^GSPC", "S&P500 지수"),
         # 나스닥·다우·s&p 는 tickers.py 가 QQQ·DIA·SPY 로 먼저 받는다.
         # 종목이 테마보다 구체적이라 그쪽이 이기는 게 맞고, 여기 남겨두면
@@ -87,8 +100,8 @@ THEMES = {
 }
 
 # 칩에 보여줄 순서
-ORDER = ["반도체", "빅테크", "유가", "자동차", "금융", "소비", "헬스케어",
-         "항공방산", "지수"]
+ORDER = ["반도체", "빅테크", "소프트웨어", "유가", "자동차", "금융", "소비",
+         "헬스케어", "항공방산", "지수"]
 
 _ALIAS = {}
 for _k, _v in THEMES.items():

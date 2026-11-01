@@ -49,7 +49,7 @@ def _rows(symbols):
     if h is None or len(h) == 0:
         return [], None
 
-    out, last_day = [], None
+    out = []
     for sym in symbols:
         try:
             closes = h[sym]["Close"].dropna()
@@ -61,7 +61,6 @@ def _rows(symbols):
         if price is None or prev is None or prev == 0:
             continue
         day = closes.index[-1].strftime("%Y-%m-%d")
-        last_day = last_day or day
         out.append({
             "symbol": sym,
             "price": round(price, 2),
@@ -70,7 +69,17 @@ def _rows(symbols):
             "pct": round((price - prev) / prev * 100, 2),
             "date": day,
         })
-    return out, last_day
+
+    # 거래일이 섞이면 안 된다.
+    #
+    # 지금은 미국 상장만 넣어서 전부 같은 날이지만, 나중에 사우디(일~목)나
+    # 일본 종목을 넣으면 달라진다. 머리글에 "10-30 장" 이라고 쓰고 한 줄만
+    # 10-29 면, 화면은 거짓말을 하면서도 아무 표시가 없다.
+    # 가장 최근 날짜를 기준으로 삼고, 다른 날짜인 줄은 표시해 둔다.
+    day0 = max((r["date"] for r in out), default=None)
+    for r in out:
+        r["stale"] = r["date"] != day0
+    return out, day0
 
 
 def judge(items):

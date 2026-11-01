@@ -607,7 +607,10 @@ function ThemePanel({ chips, data, cur, busy, onTheme, onStock, picked }) {
               onClick={() => onStock(x.symbol)}>
               <span className="tr-tk">{x.symbol}</span>
               <span className="tr-nm">{x.name}</span>
-              <span className="tr-pr">{x.price.toLocaleString()}</span>
+              <span className="tr-pr">
+                {x.price.toLocaleString()}
+                {x.stale && <span className="tr-old"> {x.date.slice(5)}</span>}
+              </span>
               <span className={`tr-pc ${x.pct > 0 ? 'up' : x.pct < 0 ? 'down' : ''}`}>
                 {x.pct > 0 ? '+' : ''}{x.pct}%
               </span>
@@ -1505,6 +1508,9 @@ const CSS = `
 .tr-nm { flex:1 1 auto; font-size:.76rem; color:#e6e8eb; overflow:hidden;
          text-overflow:ellipsis; white-space:nowrap; }
 .tr-pr { font-size:.76rem; color:#8b93a1; font-variant-numeric:tabular-nums; }
+/* 그 줄만 거래일이 다를 때 — 지금은 미국 상장만 넣어서 안 나오지만,
+   나중에 휴장일이 다른 시장을 넣으면 화면이 조용히 거짓말하는 것을 막는다 */
+.tr-old { font-size:.64rem; color:#fbbf24; }
 .tr-pc { flex:0 0 58px; text-align:right; font-size:.76rem; font-weight:600;
          font-variant-numeric:tabular-nums; }
 .dayhead { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:6px; }

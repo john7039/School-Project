@@ -51,6 +51,27 @@ NAMES = {
     # themes.py 가 쓰는 종목들
     "COP": "코노코필립스", "SLB": "슐럼버거", "RIVN": "리비안",
     "RTX": "RTX", "NOC": "노스롭그루먼", "SOXX": "반도체 ETF",
+    # 에너지 — 해외 메이저는 뉴욕 상장 ADR 로 받는다. 달러로 거래되고
+    # 뉴스도 잡힌다. 사우디 아람코(2222.SR)는 리얄 표시라 넣지 않았다.
+    "SHEL": "셸", "BP": "BP", "TTE": "토탈에너지스", "EQNR": "에퀴노르",
+    "PBR": "페트로브라스", "OXY": "옥시덴탈",
+    # 반도체
+    "AMAT": "어플라이드머티리얼즈",
+    # 자동차
+    "TM": "토요타", "HMC": "혼다", "STLA": "스텔란티스",
+    "LCID": "루시드", "NIO": "니오",
+    # 금융
+    "WFC": "웰스파고", "C": "씨티그룹", "MS": "모건스탠리",
+    "AXP": "아메리칸익스프레스", "BLK": "블랙록",
+    # 소비
+    "PG": "P&G", "TGT": "타겟",
+    # 헬스케어
+    "MRK": "머크", "TMO": "써모피셔", "BMY": "브리스톨마이어스",
+    "AMGN": "암젠", "NVO": "노보노디스크",
+    # 방산
+    "GD": "제너럴다이내믹스", "LHX": "L3해리스", "HII": "헌팅턴인갈스",
+    # 지수 ETF
+    "IWM": "러셀2000 ETF", "VTI": "미국전체 ETF",
 }
 
 # 검색어 -> 티커. 소문자·공백제거 후 비교한다.
@@ -125,6 +146,35 @@ _EXTRA = {
     "리비안": "RIVN", "rivian": "RIVN",
     "알티엑스": "RTX", "레이시온": "RTX", "raytheon": "RTX",
     "노스롭그루먼": "NOC", "노스롭": "NOC", "northrop": "NOC",
+    "셸": "SHEL", "쉘": "SHEL", "shell": "SHEL",
+    "비피": "BP", "브리티시페트롤리움": "BP",
+    "토탈": "TTE", "토탈에너지스": "TTE", "total": "TTE", "totalenergies": "TTE",
+    "에퀴노르": "EQNR", "equinor": "EQNR", "스타토일": "EQNR",
+    "페트로브라스": "PBR", "petrobras": "PBR",
+    "옥시덴탈": "OXY", "옥시": "OXY", "occidental": "OXY",
+    "어플라이드머티리얼즈": "AMAT", "어플라이드": "AMAT", "applied": "AMAT",
+    "토요타": "TM", "도요타": "TM", "toyota": "TM",
+    "혼다": "HMC", "honda": "HMC",
+    "스텔란티스": "STLA", "stellantis": "STLA", "지프": "STLA",
+    "루시드": "LCID", "lucid": "LCID",
+    "니오": "NIO", "nio": "NIO",
+    "웰스파고": "WFC", "wellsfargo": "WFC",
+    "씨티": "C", "씨티그룹": "C", "citi": "C", "citigroup": "C",
+    "모건스탠리": "MS", "morganstanley": "MS",
+    "아메리칸익스프레스": "AXP", "아멕스": "AXP", "amex": "AXP",
+    "블랙록": "BLK", "blackrock": "BLK",
+    "피앤지": "PG", "프록터앤갬블": "PG", "pg": "PG",
+    "타겟": "TGT", "타깃": "TGT", "target": "TGT",
+    "머크": "MRK", "merck": "MRK",
+    "써모피셔": "TMO", "서모피셔": "TMO", "thermo": "TMO",
+    "브리스톨마이어스": "BMY", "브리스톨": "BMY",
+    "암젠": "AMGN", "amgen": "AMGN",
+    "노보노디스크": "NVO", "노보": "NVO", "위고비": "NVO", "novo": "NVO",
+    "제너럴다이내믹스": "GD",
+    "엘쓰리해리스": "LHX", "l3해리스": "LHX",
+    "헌팅턴인갈스": "HII",
+    "러셀": "IWM", "러셀2000": "IWM",
+    "브이티아이": "VTI",
 }
 
 # 사전에서 자동으로 만들 수 있는 것은 자동으로 (티커 그대로, 한글 이름 그대로)
