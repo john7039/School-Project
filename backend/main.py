@@ -42,10 +42,9 @@ def list_indicators():
          잘랐다. 지표당 16개월꼴이라, 44개월을 모아뒀는데 3분의 1만 갔다.
     """
     conn = get_db()
-    items = indicators.build(conn)
+    out = indicators.build(conn)
     conn.close()
-    # 고리 설명은 지표별 데이터가 아니라 탭 전체에 붙는 글이라 따로 싣는다.
-    return {"items": items, "chain": indicators.CHAIN}
+    return out
 
 def pct_change(conn, ticker, start_date, days, window=7):
     """발표일(start_date) 직후 거래일 종가 → days 거래일 뒤 종가의 등락률(%).

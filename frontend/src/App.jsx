@@ -60,6 +60,22 @@ function sentText(s) {
   return '중립'
 }
 
+function Info({ text }) {
+  const [o, setO] = useState(false)
+  useEffect(() => {
+    if (!o) return
+    const close = () => setO(false)
+    window.addEventListener('click', close)
+    return () => window.removeEventListener('click', close)
+  }, [o])
+  return (
+    <>
+      <button className="info" onClick={(e) => { e.stopPropagation(); setO(!o) }}>ⓘ</button>
+      {o && <div className="tip">{text}</div>}
+    </>
+  )
+}
+
 function Modal({ children, onClose }) {
   useEffect(() => {
     const onKey = (e) => { if (e.key === 'Escape') onClose() }
@@ -805,46 +821,21 @@ function StocksTab() {
 // 금리·실업률은 차이(%p) — 을 화면에 흩어두면 또 틀린다.
 function MarketTab() {
   const [items, setItems] = useState([])
-  const [chain, setChain] = useState([])
   const [failed, setFailed] = useState(false)
   useEffect(() => {
     fetch(`${API}/api/indicators`)
       .then(r => r.json())
-      .then(d => { setItems(d?.items || []); setChain(d?.chain || []) })
+      .then(d => setItems(Array.isArray(d) ? d : []))
       .catch(() => setFailed(true))
   }, [])
   return (
     <div className="panel">
       <p className="lead">물가, 금리, 일자리.</p>
       {failed && <p className="chartcap">지표를 불러오지 못했습니다.</p>}
-      <Chain steps={chain} />
       <div className="igrid">
         {items.map(d => <IndCard key={d.name} d={d} />)}
       </div>
       <p className="chartcap">미국 FRED 자료 · 발표될 때마다 갱신됩니다.</p>
-    </div>
-  )
-}
-
-// 세 지표가 왜 같은 탭에 있는지를 먼저 보여준다. 따로 보면 숫자 세 개다.
-// SVG 로 원을 그리지 않고 줄로 늘어놓은 이유 — 좁은 화면에서 줄바꿈이 되고,
-// 마지막 칸이 첫 칸과 같은 말이라 선을 안 그어도 고리임이 읽힌다.
-function Chain({ steps }) {
-  if (!steps || !steps.length) return null
-  return (
-    <div className="chain">
-      <div className="chainrow">
-        {steps.map((t, i) => (
-          <span key={i} className="chainstep">
-            {i > 0 && <span className="chainarrow">→</span>}
-            <span className={`chaintext${i === 0 || i === steps.length - 1 ? ' edge' : ''}`}>{t}</span>
-          </span>
-        ))}
-      </div>
-      <p className="chaincap">
-        처음과 끝이 같은 말이라 고리입니다. <b>보통</b> 이렇게 돌고,
-        이 순서대로 가지 않는 때도 많습니다 — 물가와 실업률이 같이 오르는 해도 있습니다.
-      </p>
     </div>
   )
 }
@@ -869,7 +860,7 @@ function IndCard({ d }) {
   return (
     <div className="icard">
       <div className="ihead">
-        <span className="iname">{d.label}</span>
+        <span className="iname">{d.label}<Info text={d.about} /></span>
         <span className="iwhen">{d.month}{d.released && ` · ${d.released}`}</span>
       </div>
       <div className="ibig">{amount(d.headline, index)}</div>
@@ -884,17 +875,8 @@ function IndCard({ d }) {
         label={`${d.label} ${d.chart.from}부터 ${d.chart.to}까지 추이`} />
       <p className="chartcap">{d.chart.from} ~ {d.chart.to} · {pts.length}개월</p>
       {d.note && <p className="inote">{d.note}</p>}
-      {/* 설명을 툴팁에 숨겨뒀더니 마우스를 올려야 보이고 모바일에서는 아예
-          안 보였다. 꺼내서 카드 안에 적는다. */}
-      <div className="iwhat">
-        <p className="iabout">{d.about}</p>
-        {d.drivers && <p><span className="ik">무엇에 밀리나</span>{d.drivers}</p>}
-        {d.affects && <p><span className="ik">무엇을 움직이나</span>{d.affects}</p>}
-        {d.source && <p><span className="ik">누가 언제</span>{d.source}</p>}
-        {d.caveat && <p className="icav">{d.caveat}</p>}
-        {/* 계산한 숫자만 보여주면 틀렸을 때 알 수가 없다. 원값을 남긴다. */}
-        {index && <p><span className="ik">지수 원값</span>{d.raw.toFixed(d.raw_decimals)}</p>}
-      </div>
+      {/* 계산한 숫자만 보여주면 틀렸을 때 알 수가 없다. 원값을 남긴다. */}
+      {index && <p className="iraw">지수 {d.raw.toFixed(d.raw_decimals)}</p>}
     </div>
   )
 }
@@ -1418,21 +1400,8 @@ const CSS = `
   .icard .chartcap { margin:6px 0 0; }
   .inote { font-size:.82rem; color:#c9ced8; margin:6px 0 0; }
   .iraw { font-size:.72rem; color:#6b7280; margin:4px 0 0; font-variant-numeric:tabular-nums; }
-  .iwhat { border-top:1px solid #262c3a; margin-top:12px; padding-top:10px; }
-  .iwhat p { font-size:.78rem; color:#8b93a1; margin:0 0 5px; line-height:1.6; }
-  .iwhat p:last-child { margin-bottom:0; }
-  .iabout { color:#c9ced8 !important; }
-  .ik { display:inline-block; min-width:106px; color:#6b7280; font-weight:600; }
-  .icav { color:#6b7280 !important; padding-left:10px; border-left:2px solid #333a4a; }
-  .chain { background:#161a24; border:1px solid #262c3a; border-radius:12px;
-           padding:13px 14px; margin:0 0 14px; }
-  .chainrow { display:flex; flex-wrap:wrap; align-items:center; gap:3px 5px; }
-  .chainstep { display:inline-flex; align-items:center; gap:5px; }
-  .chainarrow { color:#4b5563; font-size:.78rem; }
-  .chaintext { font-size:.78rem; color:#8b93a1; white-space:nowrap; }
-  .chaintext.edge { color:#e6e8eb; font-weight:600; }
-  .chaincap { font-size:.72rem; color:#6b7280; margin:9px 0 0; line-height:1.6; }
-  .chaincap b { color:#8b93a1; }
+  .info { margin-left:6px; background:none; color:#6b7280; font-size:.75rem; cursor:pointer; border:1px solid #3a4152; border-radius:50%; width:17px; height:17px; padding:0; line-height:1; }
+  .tip { position:absolute; background:#0f1117; border:1px solid #4ade80; border-radius:8px; padding:8px 10px; font-size:.75rem; color:#cbd5e1; max-width:220px; margin-top:4px; z-index:5; }
 
   .modal-bg { position:fixed; inset:0; background:rgba(3,5,10,.72); display:flex; align-items:center; justify-content:center; padding:18px; z-index:50; }
   .modal { background:#1a1e29; border:1px solid #2f3646; border-radius:16px; padding:24px; max-width:540px; width:100%; max-height:86vh; overflow-y:auto; position:relative; }
