@@ -846,6 +846,22 @@ function amount(a, sign = true) {
   return `${sign && a.value > 0 ? '+' : ''}${a.value.toFixed(a.decimals)}${a.unit}`
 }
 
+// 지표는 주가와 색 관습이 다르다. 주가는 올라서 좋지만 물가·금리·실업률은
+// 셋 다 올라서 부담이다. 그래서 종목 탭의 초록(상승)/빨강(하락)이 아니라
+// 빨강(상승)/파랑(하락) 을 쓴다. 기호(▲▼)를 같이 두는 건 색만으로 구분하면
+// 색약인 사람에게 아무 정보가 아니기 때문이다.
+function Delta({ a, pre }) {
+  if (!a) return null
+  const up = a.value > 0, down = a.value < 0
+  return (
+    <span className={`idelta${up ? ' iup' : down ? ' idown' : ''}`}>
+      <span className="ipre">{pre}</span>
+      {up ? '▲' : down ? '▼' : '─'}
+      {Math.abs(a.value).toFixed(a.decimals)}{a.unit}
+    </span>
+  )
+}
+
 function IndCard({ d }) {
   const pts = d.chart?.points || []
   if (pts.length < 2) return null
@@ -857,21 +873,31 @@ function IndCard({ d }) {
   const chg = pts[pts.length - 1].rate - baseline
   const { decimals: dec, unit } = d.chart
   const index = d.unit === 'index'
+  // x 눈금을 index 로 4등분하면 달 간격이 어긋난다. CPI 는 결측이 한 달 있어서
+  // 24.01 · 24.11 · 25.11 · 26.09 로 나왔다. 달력에서 1월·7월을 집는다.
+  const ticks = pts.reduce((a, pt, i) =>
+    (pt.t.endsWith('.01') || pt.t.endsWith('.07')) ? [...a, i] : a, [])
+  const dir = index ? Math.sign(d.headline?.value || 0) : 0
   return (
     <div className="icard">
       <div className="ihead">
         <span className="iname">{d.label}<Info text={d.about} /></span>
         <span className="iwhen">{d.month}{d.released && ` · ${d.released}`}</span>
       </div>
-      <div className="ibig">{amount(d.headline, index)}</div>
+      <div className={`ibig${dir > 0 ? ' iup' : dir < 0 ? ' idown' : ''}`}>
+        {amount(d.headline, index)}
+      </div>
       <div className="isub">
-        {index ? '작년 같은 달 대비' : d.yoy && `작년보다 ${amount(d.yoy)}`}
-        {d.mom && ` · 전월보다 ${amount(d.mom)}`}
+        {index
+          ? <span className="ipre">작년 같은 달 대비</span>
+          : <Delta a={d.yoy} pre="작년보다" />}
+        <Delta a={d.mom} pre="전월보다" />
       </div>
       {/* 색은 좋고 나쁨이 아니라 방향이다. 실업률이 내리면 좋지만 너무 낮으면
           금리 인상 우려가 되는 것처럼, 지표의 좋고 나쁨은 보는 쪽에 따라 다르다. */}
       <AxisChart pts={pts} baseline={baseline} baseName={baseName}
         color={dirColor(chg)} fmt={v => `${v.toFixed(dec)}${unit}`}
+        headroom={1.6} xticks={ticks}
         label={`${d.label} ${d.chart.from}부터 ${d.chart.to}까지 추이`} />
       <p className="chartcap">{d.chart.from} ~ {d.chart.to} · {pts.length}개월</p>
       {d.note && <p className="inote">{d.note}</p>}
@@ -938,7 +964,7 @@ function fxStamp(v) {
 //   · 가로 눈금에 고가·시작가·저가의 실제 원화 값을 적고
 //   · 두 축이 각각 무엇인지 그래프 아래에 쓴다
 // 선 모양만으로는 "얼마나" 움직였는지 알 수 없다.
-function AxisChart({ pts, baseline, baseName, color, label, fmt }) {
+function AxisChart({ pts, baseline, baseName, color, label, fmt, headroom = 1, xticks }) {
   if (!pts || pts.length < 2) return null
   const W = 600, H = 172
   // padR 은 눈금 라벨("시작 1334.28")이 들어갈 자리다. 좁으면 글자가 잘린다.
@@ -948,8 +974,10 @@ function AxisChart({ pts, baseline, baseName, color, label, fmt }) {
   const vals = pts.map(x => x.rate)
   const high = Math.max(...vals), low = Math.min(...vals)
   let lo = Math.min(low, baseline), hi = Math.max(high, baseline)
+  // headroom 은 위쪽만 더 띄우는 배수다. 아래위를 같이 늘리면 선이 납작해져서
+  // 움직임이 안 보이는데, 꼭대기만 눌려 보일 때는 위쪽만 벌리면 된다.
   const room = (hi - lo) * 0.14 || 0.5
-  lo -= room; hi += room
+  lo -= room; hi += room * headroom
   const span = hi - lo || 1
 
   const px = i => padL + (i / (pts.length - 1)) * (W - padL - padR)
@@ -969,9 +997,13 @@ function AxisChart({ pts, baseline, baseName, color, label, fmt }) {
     if (ticks.every(o => Math.abs(py(o.v) - py(t.v)) >= 15)) ticks.push(t)
   }
 
+  // 기본은 index 를 4등분한 자리다. 달·분기처럼 달력으로 집어야 하는 자료는
+  // 부르는 쪽이 ticks 로 넘긴다 — index 등분은 결측이 있으면 달 간격이 어긋난다.
   const last = pts.length - 1
-  const xi = [0, Math.round(last / 3), Math.round(last * 2 / 3), last]
-    .filter((v, i, a) => a.indexOf(v) === i)
+  const xi = (xticks && xticks.length
+    ? xticks
+    : [0, Math.round(last / 3), Math.round(last * 2 / 3), last])
+    .filter((v, i, a) => a.indexOf(v) === i && v >= 0 && v <= last)
 
   return (
     <svg className="daychart" viewBox={`0 0 ${W} ${H}`} role="img" aria-label={label}>
@@ -1226,13 +1258,17 @@ const CSS = `
   header h1 { margin:0; font-size:1.4rem; }
   header p { margin:5px 0 0; color:#8b93a1; font-size:.85rem; }
   .tabs { position:sticky; top:0; background:#0f1117; display:flex; gap:4px; border-bottom:1px solid #262c3a; z-index:10; padding-top:4px; }
-  .tab { flex:1; background:none; border:none; color:#8b93a1; font:inherit; font-size:.82rem; font-weight:600; padding:12px 4px; cursor:pointer; border-bottom:2px solid transparent; margin-bottom:-1px; white-space:nowrap; }
+  .tab { flex:1; background:none; border:none; color:#8b93a1; font:inherit; font-size:.82rem; font-weight:600; padding:13px 6px; cursor:pointer; border-bottom:2px solid transparent; border-radius:8px 8px 0 0; margin-bottom:-1px; white-space:nowrap; }
+  /* 클릭한 뒤 브라우저 기본 포커스 테두리가 남으면 네모 박스처럼 보인다.
+     키보드로 온 경우(:focus-visible)에만 테두리를 남긴다. */
+  .tab:focus { outline:none; }
+  .tab:focus-visible { outline:2px solid #4ade80; outline-offset:-3px; }
   @media (max-width:520px) { .tab { font-size:.7rem; padding:11px 2px; } }
   .tab:hover { color:#e6e8eb; }
-  .tab.active { color:#4ade80; border-bottom-color:#4ade80; }
+  .tab.active { color:#4ade80; border-bottom-color:#4ade80; background:#151a26; }
   .panel { padding-top:16px; }
   .lead { color:#8b93a1; font-size:.84rem; margin:0 0 14px; line-height:1.5; }
-  .label { font-size:.72rem; text-transform:uppercase; letter-spacing:.08em; color:#6b7280; font-weight:700; margin:18px 0 10px; }
+  .label { font-size:.72rem; text-transform:uppercase; letter-spacing:.08em; color:#9ca3af; font-weight:700; margin:18px 0 10px; }
   .up { color:#4ade80; } .down { color:#f87171; }
 
   .chips { display:flex; gap:8px; overflow-x:auto; padding-bottom:6px; }
@@ -1266,13 +1302,13 @@ const CSS = `
   .impbadge.pos { background:#12351f; color:#4ade80; }
   .impbadge.neg { background:#3a1518; color:#f87171; }
   .impbadge .est { font-style:normal; font-size:.62rem; opacity:.7; margin-left:4px; padding-left:5px; border-left:1px solid currentColor; }
-  .aorig { font-size:.74rem; color:#6b7280; margin-top:5px; line-height:1.4; }
-  .m-orig { font-size:.78rem; color:#6b7280; margin-top:3px; line-height:1.45; }
+  .aorig { font-size:.74rem; color:#9ca3af; margin-top:5px; line-height:1.4; }
+  .m-orig { font-size:.78rem; color:#9ca3af; margin-top:3px; line-height:1.45; }
   .art.thin { padding:12px 14px; }
   .art.thin .atitle { font-size:.9rem; font-weight:600; }
   .foldbtn { width:100%; text-align:left; background:none; border:none; border-top:1px solid #262c3a; color:#8b93a1; font:inherit; font-size:.82rem; padding:12px 2px; margin-top:14px; cursor:pointer; }
   .foldbtn:hover { color:#e6e8eb; }
-  .imp-kind { font-size:.76rem; color:#6b7280; margin:10px 0 7px; }
+  .imp-kind { font-size:.76rem; color:#9ca3af; margin:10px 0 7px; }
   .imp-kind i { font-style:normal; color:#8b7a3a; }
 
   /* 기사 검색 — AI 선별 카드와 기업별 영향 */
@@ -1282,14 +1318,14 @@ const CSS = `
   .search-btn.wide { width:100%; padding:13px; }
   .search-btn .dim { opacity:.7; font-weight:400; }
   .thinking { font-size:.9rem; color:#4ade80; line-height:1.5; }
-  .thinking-sub { font-size:.78rem; color:#6b7280; margin-top:5px; }
+  .thinking-sub { font-size:.78rem; color:#9ca3af; margin-top:5px; }
   .imps { display:flex; flex-direction:column; gap:9px; }
   .imp { background:#12151d; border:1px solid #262c3a; border-radius:11px; padding:11px 13px; }
   .imp-top { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:6px; }
   .imp-tk { font-size:.66rem; color:#8b93a1; background:#212734; padding:2px 7px; border-radius:5px; font-variant-numeric:tabular-nums; }
   .imp-why { font-size:.84rem; color:#9aa4b2; line-height:1.55; }
   .imp-all { margin-top:9px; font-size:.8rem; color:#8b93a1; line-height:1.5; }
-  .imp-none { font-size:.84rem; color:#6b7280; line-height:1.55; }
+  .imp-none { font-size:.84rem; color:#9ca3af; line-height:1.55; }
 
   /* 기사 검색 */
   .search { margin:6px 0 18px; }
@@ -1306,10 +1342,10 @@ const CSS = `
   .search-chips .chip { min-width:0; padding:6px 12px; font-size:.8rem; }
   .search-res { margin-top:15px; }
   .search-head { font-size:.84rem; color:#8b93a1; margin-bottom:9px; line-height:1.5; }
-  .search-exp { color:#6b7280; }
+  .search-exp { color:#9ca3af; }
   .search-exp b { color:#8b93a1; font-weight:600; }
   .hit { background:#1d2a3d; color:#8fb4e8; font-size:.68rem; padding:2px 8px; border-radius:20px; }
-  .asrc { margin-left:auto; color:#6b7280; }
+  .asrc { margin-left:auto; color:#9ca3af; }
   a.art { text-decoration:none; }
 
   .scroll { display:flex; flex-direction:column; gap:10px; max-height:460px; overflow-y:auto; padding-right:4px; }
@@ -1322,11 +1358,11 @@ const CSS = `
   .badge { background:#4ade80; color:#06210f; font-weight:800; font-size:.64rem; padding:2px 7px; border-radius:5px; }
   .day-metrics { display:flex; gap:16px; flex-wrap:wrap; align-items:baseline; }
   .metric .v { font-weight:700; font-variant-numeric:tabular-nums; } .metric .v.big { font-size:1.05rem; }
-  .metric .k { font-size:.68rem; color:#6b7280; display:block; }
+  .metric .k { font-size:.68rem; color:#9ca3af; display:block; }
   .flow { font-size:.72rem; padding:2px 8px; border-radius:20px; background:#212734; color:#9aa4b2; }
   .flow.buy { background:#12351f; color:#4ade80; } .flow.sell { background:#3a1518; color:#f87171; }
   .day-sum { margin-top:10px; font-size:.78rem; color:#8b93a1; line-height:1.45; }
-  .day-foot { margin-top:9px; font-size:.74rem; color:#6b7280; display:flex; justify-content:space-between; }
+  .day-foot { margin-top:9px; font-size:.74rem; color:#9ca3af; display:flex; justify-content:space-between; }
   .arrow { color:#4ade80; }
   .atitle { font-size:.98rem; font-weight:650; line-height:1.45; }
   .sent { font-size:.68rem; padding:2px 8px; border-radius:20px; background:#212734; color:#9aa4b2; }
@@ -1335,7 +1371,7 @@ const CSS = `
   .fxcard { background:#1a1e29; border:1px solid #262c3a; border-radius:13px; padding:15px 16px 10px; margin-bottom:12px; }
   .fxcard.main { border-color:#2b3a55; background:linear-gradient(180deg,#161d2b 0%,#1a1e29 60%); }
   .fxhead { display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; }
-  .fxname { font-size:1rem; font-weight:700; } .fxsub { font-size:.7rem; color:#6b7280; }
+  .fxname { font-size:1rem; font-weight:700; } .fxsub { font-size:.7rem; color:#9ca3af; }
   .fxdir { font-size:.72rem; padding:3px 9px; border-radius:20px; background:#212734; color:#9aa4b2; white-space:nowrap; }
   .fxdir.weak { background:#3a2a12; color:#fbbf24; }   /* 원화 약세 — 좋/나쁨 아닌 '방향' */
   .fxdir.strong { background:#13273f; color:#60a5fa; } /* 원화 강세 */
@@ -1353,26 +1389,26 @@ const CSS = `
   .fxnow-top { display:flex; align-items:baseline; justify-content:space-between; gap:10px;
                flex-wrap:wrap; margin-bottom:7px; }
   .fxnow-t { font-size:.78rem; font-weight:700; letter-spacing:.04em; color:#93c5fd; }
-  .fxnow-sub { font-size:.68rem; color:#6b7280; }
+  .fxnow-sub { font-size:.68rem; color:#9ca3af; }
   .fxnow-row { display:flex; align-items:baseline; gap:9px; flex-wrap:wrap; padding:5px 0; }
-  .fxnow-k { font-size:.72rem; color:#6b7280; min-width:52px; }
+  .fxnow-k { font-size:.72rem; color:#9ca3af; min-width:52px; }
   .fxnow-v { font-size:1.22rem; font-weight:700; font-variant-numeric:tabular-nums; }
   .fxnow-v .won { font-size:.8rem; font-weight:600; color:#8b93a1; margin-left:2px; }
-  .fxnow-when { font-size:.68rem; color:#6b7280; margin-left:auto; white-space:nowrap; }
+  .fxnow-when { font-size:.68rem; color:#9ca3af; margin-left:auto; white-space:nowrap; }
   .fxnow-when.warn { color:#fbbf24; }
-  .fxnow-note { font-size:.72rem; color:#6b7280; line-height:1.55; margin:8px 0 0; }
+  .fxnow-note { font-size:.72rem; color:#9ca3af; line-height:1.55; margin:8px 0 0; }
   .fxnow-note b { color:#8b93a1; }
 
   /* 오늘 움직임 그래프 */
   .daybox { background:#161a24; border:1px solid #262c3a; border-radius:12px;
             padding:12px 14px 10px; margin:10px 0 2px; }
-  .daycap { font-size:.72rem; color:#6b7280; margin:0 0 6px;
+  .daycap { font-size:.72rem; color:#9ca3af; margin:0 0 6px;
             display:flex; justify-content:space-between; gap:10px; flex-wrap:wrap; }
   .daycap b { color:#c4cad4; }
   .daychart { width:100%; height:auto; display:block; }
   .daychart .gl { stroke:#262c3a; stroke-width:1; }
   .daychart .gl.open { stroke:#4b5563; stroke-dasharray:4 4; }   /* 시작가 기준선 */
-  .daychart .axl { font-size:12px; fill:#6b7280; font-variant-numeric:tabular-nums; }
+  .daychart .axl { font-size:12px; fill:#9ca3af; font-variant-numeric:tabular-nums; }
   .daysum { font-size:.78rem; color:#8b93a1; line-height:1.75; margin:8px 0 0;
             font-variant-numeric:tabular-nums; }
   .daysum b { color:#e6e8eb; }
@@ -1381,11 +1417,11 @@ const CSS = `
   /* 시간대가 다른 구역을 눈으로 가른다 — 위는 '지금·오늘', 아래는 '확정된 하루' */
   .seg { height:1px; margin:26px 0 2px;
          background:linear-gradient(90deg,transparent,#2b3a55 18%,#2b3a55 82%,transparent); }
-  .segnote { font-size:.74rem; color:#6b7280; line-height:1.6; margin:0 0 10px; }
+  .segnote { font-size:.74rem; color:#9ca3af; line-height:1.6; margin:0 0 10px; }
   .segnote b { color:#8b93a1; }
 
   .chartbox { background:#161a24; border:1px solid #262c3a; border-radius:12px; padding:12px 14px 8px; margin:14px 0 4px; }
-  .chartcap { font-size:.72rem; color:#6b7280; margin:0 0 8px; }
+  .chartcap { font-size:.72rem; color:#9ca3af; margin:0 0 8px; }
 
   /* 한 줄에 하나씩 쌓는다. 2단으로 깔면 카드가 400px 쯤 되고, AxisChart 의
      viewBox 가 600 이라 12px 눈금 글자가 8px 로 줄어 안 읽힌다. */
@@ -1393,14 +1429,19 @@ const CSS = `
   .icard { background:#1a1e29; border:1px solid #262c3a; border-radius:12px; padding:16px; min-width:0; }
   .ihead { display:flex; justify-content:space-between; align-items:baseline; gap:10px; flex-wrap:wrap; }
   .iname { font-size:.9rem; font-weight:700; color:#e6e8eb; display:flex; align-items:center; }
-  .iwhen { font-size:.72rem; color:#6b7280; font-variant-numeric:tabular-nums; }
+  .iwhen { font-size:.72rem; color:#9ca3af; font-variant-numeric:tabular-nums; }
   .ibig { font-size:1.9rem; font-weight:700; margin-top:10px; letter-spacing:-.02em;
           font-variant-numeric:tabular-nums; }
-  .isub { font-size:.76rem; color:#8b93a1; margin:2px 0 12px; font-variant-numeric:tabular-nums; }
+  .isub { font-size:.76rem; color:#8b93a1; margin:4px 0 12px; font-variant-numeric:tabular-nums;
+          display:flex; flex-wrap:wrap; align-items:center; gap:3px 14px; }
+  .idelta { display:inline-flex; align-items:center; gap:4px; font-weight:600; }
+  .ipre { color:#9ca3af; font-weight:400; }
+  .iup { color:#f87171; }
+  .idown { color:#60a5fa; }
   .icard .chartcap { margin:6px 0 0; }
   .inote { font-size:.82rem; color:#c9ced8; margin:6px 0 0; }
-  .iraw { font-size:.72rem; color:#6b7280; margin:4px 0 0; font-variant-numeric:tabular-nums; }
-  .info { margin-left:6px; background:none; color:#6b7280; font-size:.75rem; cursor:pointer; border:1px solid #3a4152; border-radius:50%; width:17px; height:17px; padding:0; line-height:1; }
+  .iraw { font-size:.72rem; color:#9ca3af; margin:4px 0 0; font-variant-numeric:tabular-nums; }
+  .info { margin-left:6px; background:none; color:#9ca3af; font-size:.75rem; cursor:pointer; border:1px solid #4b5563; border-radius:50%; width:17px; height:17px; padding:0; line-height:1; }
   .tip { position:absolute; background:#0f1117; border:1px solid #4ade80; border-radius:8px; padding:8px 10px; font-size:.75rem; color:#cbd5e1; max-width:220px; margin-top:4px; z-index:5; }
 
   .modal-bg { position:fixed; inset:0; background:rgba(3,5,10,.72); display:flex; align-items:center; justify-content:center; padding:18px; z-index:50; }
@@ -1409,7 +1450,7 @@ const CSS = `
   .mx:hover { color:#e6e8eb; }
   .m-date { font-size:.76rem; color:#4ade80; font-variant-numeric:tabular-nums; margin-bottom:6px; }
   .m-title { font-size:1.15rem; font-weight:700; margin:0 26px 6px 0; line-height:1.35; }
-  .m-sub { font-size:.74rem; color:#6b7280; margin-bottom:14px; }
+  .m-sub { font-size:.74rem; color:#9ca3af; margin-bottom:14px; }
   .m-row { display:flex; gap:18px; flex-wrap:wrap; margin-bottom:14px; padding-bottom:14px; border-bottom:1px solid #262c3a; }
   .src-btn { display:inline-block; background:#212734; color:#e6e8eb; text-decoration:none; padding:8px 14px; border-radius:8px; font-size:.8rem; font-weight:600; border:1px solid #262c3a; margin-bottom:4px; }
   .src-btn:hover { border-color:#4ade80; color:#4ade80; }
@@ -1432,7 +1473,7 @@ const CSS = `
 .qprice { display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; }
 .qnow { font-size:1.9rem; font-weight:700; color:#e6e8eb; font-variant-numeric:tabular-nums; }
 .qchg { font-size:.92rem; font-weight:600; font-variant-numeric:tabular-nums; }
-.qwhen { font-size:.72rem; color:#6b7280; line-height:1.6; margin-top:6px; }
+.qwhen { font-size:.72rem; color:#9ca3af; line-height:1.6; margin-top:6px; }
 .qext { font-size:.76rem; color:#8b93a1; margin-top:7px; padding-top:7px; border-top:1px dashed #2b3240; }
 .qgrid { display:grid; grid-template-columns:repeat(4,1fr); gap:10px; margin-top:14px;
          padding-top:13px; border-top:1px solid #222836; }
@@ -1440,7 +1481,7 @@ const CSS = `
 
 /* 52주 범위 막대 — 숫자 두 개보다 위치 하나가 빨리 읽힌다 */
 .w52 { margin-top:16px; }
-.w52-top, .w52-bot { display:flex; justify-content:space-between; font-size:.68rem; color:#6b7280; }
+.w52-top, .w52-bot { display:flex; justify-content:space-between; font-size:.68rem; color:#9ca3af; }
 .w52-bot { margin-top:5px; font-variant-numeric:tabular-nums; }
 .w52-cur { color:#e6e8eb; font-weight:600; }
 .w52-bar { position:relative; height:6px; margin-top:5px; border-radius:999px;
@@ -1452,7 +1493,7 @@ const CSS = `
 .segbox { background:#161a24; border:1px solid #262c3a; border-radius:12px; padding:14px; margin:4px 0 10px; }
 .segbox .search-btn { margin-top:4px; }
 .segnote.dim { color:#565e6b; }
-.qgrid .metric .sub { display:block; font-size:.66rem; color:#6b7280; margin-top:2px; }
+.qgrid .metric .sub { display:block; font-size:.66rem; color:#9ca3af; margin-top:2px; }
 
 /* ── 두 칼럼 ───────────────────────────────────────── */
 .cols { display:flex; gap:20px; align-items:flex-start; }
@@ -1475,7 +1516,7 @@ const CSS = `
 .thead { display:flex; align-items:baseline; justify-content:space-between; gap:8px;
          padding-top:10px; border-top:1px solid #222836; }
 .tname { font-size:.92rem; font-weight:700; color:#e6e8eb; }
-.tdate { font-size:.68rem; color:#6b7280; font-variant-numeric:tabular-nums; }
+.tdate { font-size:.68rem; color:#9ca3af; font-variant-numeric:tabular-nums; }
 .tindex { display:flex; align-items:baseline; gap:8px; margin-top:9px; padding:8px 10px;
           background:#1a1f2b; border-radius:8px; }
 .tix-n { flex:1 1 auto; font-size:.74rem; color:#8b93a1; }
@@ -1499,7 +1540,7 @@ const CSS = `
 /* 그 줄만 거래일이 다를 때 — 지금은 미국 상장만 넣어서 안 나오지만,
    나중에 휴장일이 다른 시장을 넣으면 화면이 조용히 거짓말하는 것을 막는다 */
 .tr-old { font-size:.64rem; color:#fbbf24; }
-.tr-u { font-size:.64rem; color:#6b7280; }
+.tr-u { font-size:.64rem; color:#9ca3af; }
 .tr-pc { flex:0 0 58px; text-align:right; font-size:.76rem; font-weight:600;
          font-variant-numeric:tabular-nums; }
 .dayhead { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:6px; }
