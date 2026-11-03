@@ -819,53 +819,6 @@ function StocksTab() {
 //
 // 숫자 가공은 전부 백엔드(indicators.py)에 있다. 단위 규칙 — 지수는 비율(%),
 // 금리·실업률은 차이(%p) — 을 화면에 흩어두면 또 틀린다.
-// 미국 지표가 한국에 어떻게 오는가. 미국 카드 셋에 하나씩 짝지었다.
-//
-// 백엔드에 두지 않은 이유 — 지표별 데이터가 아니라 두 나라 **관계**에 대한
-// 설명글이고, 데이터가 바뀌어도 내용이 안 바뀐다. 지표마다 붙는 tip·impact 는
-// 백엔드(indicators.py)에 있다. 나라·지표가 늘면 거기서 같이 늘어야 하니까.
-//
-// ⚠️ 교과서에 나오는 방향이다. "지금 이렇게 되고 있다" 가 아니라 "이러면 보통
-//    이렇게 간다" 다. 머리를 '~면' 으로 달아 그 조건을 드러냈다.
-const US_KR = [
-  {
-    q: '미국 금리가 한국보다 높으면',
-    a: '달러를 들고 있는 게 유리해져서 달러가 강해집니다. 원/달러 환율이 오르고, ' +
-       '수입하는 물건 값이 올라 국내 물가를 밀어올립니다.',
-  },
-  {
-    q: '미국 물가가 예상보다 높으면',
-    a: '미국이 금리를 못 내립니다. 그러면 한국은행도 먼저 내리기 어려워집니다 — ' +
-       '금리 차가 더 벌어지면 돈이 달러로 빠져나가서요.',
-  },
-  {
-    q: '미국 실업률이 오르면',
-    a: '미국 사람들이 지갑을 닫습니다. 미국은 한국의 큰 수출 시장이라, ' +
-       '아래 수출 지표와 기업 실적에 영향이 옵니다.',
-  },
-]
-
-function UsKrLinks() {
-  const [open, setOpen] = useState(false)
-  return (
-    <div className="links">
-      <button className="linkstop" onClick={() => setOpen(!open)} aria-expanded={open}>
-        <span>🌐 미국 지표가 한국에 어떻게 오나</span>
-        <span className="linksarr">{open ? '접기 ▲' : '펼치기 ▼'}</span>
-      </button>
-      {open && (
-        <div className="linksbody">
-          {US_KR.map(x => <p key={x.q}><b>{x.q}</b>{x.a}</p>)}
-          <p className="linksnote">
-            교과서에 나오는 방향입니다. "지금 이렇게 되고 있다"가 아니라
-            "이러면 보통 이렇게 간다"는 이야기예요.
-          </p>
-        </div>
-      )}
-    </div>
-  )
-}
-
 function MarketTab() {
   const [items, setItems] = useState([])
   const [failed, setFailed] = useState(false)
@@ -879,7 +832,6 @@ function MarketTab() {
     <div className="panel">
       <p className="lead">물가, 금리, 일자리. 그리고 한국 수출입.</p>
       {failed && <p className="chartcap">지표를 불러오지 못했습니다.</p>}
-      <UsKrLinks />
       {[['US', '🇺🇸 미국'], ['KR', '🇰🇷 한국']].map(([cc, title]) => {
         const group = items.filter(d => d.country === cc)
         if (!group.length) return null
@@ -1559,18 +1511,6 @@ const CSS = `
   .idelta { display:inline-flex; align-items:center; gap:4px; font-weight:600; }
   .ipre { color:#9ca3af; font-weight:400; }
   .clabel { font-size:.8rem; font-weight:700; color:#c9ced8; margin:18px 0 9px; }
-  .links { background:#161a24; border:1px solid #262c3a; border-radius:12px; margin:0 0 4px; }
-  .linkstop { width:100%; background:none; border:none; color:#e6e8eb; font:inherit;
-              font-size:.82rem; font-weight:600; padding:12px 14px; cursor:pointer;
-              display:flex; justify-content:space-between; align-items:center; gap:10px; }
-  .linkstop:focus { outline:none; }
-  .linkstop:focus-visible { outline:2px solid #4ade80; outline-offset:-3px; border-radius:12px; }
-  .linksarr { font-size:.72rem; color:#9ca3af; font-weight:400; white-space:nowrap; }
-  .linksbody { padding:0 14px 13px; }
-  .linksbody p { font-size:.78rem; color:#8b93a1; margin:0 0 9px; line-height:1.65; }
-  .linksbody b { display:block; color:#e6e8eb; font-size:.8rem; margin-bottom:2px; }
-  .linksnote { color:#9ca3af !important; border-top:1px solid #262c3a; padding-top:9px;
-               margin-bottom:0 !important; }
   .ihead2 { display:flex; flex-wrap:wrap; align-items:center; gap:7px 10px; margin-top:10px; }
   .ibadge { display:inline-flex; align-items:center; gap:5px; font-size:.72rem; font-weight:700;
             padding:3px 9px; border-radius:999px; white-space:nowrap; }
