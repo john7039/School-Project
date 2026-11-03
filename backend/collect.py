@@ -9,7 +9,10 @@ load_dotenv()
 FRED_KEY = os.environ["FRED_API_KEY"]
 
 TICKERS = ["AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "TSLA", "META"]
-INDICATORS = {"CPI": "CPIAUCSL", "금리": "FEDFUNDS", "실업률": "UNRATE"}
+# 한국 수출·수입은 OECD 가 FRED 에 올리는 것을 쓴다. 한국은행 기준금리와
+# 한국 CPI 는 FRED 에서 끊겼다(2025-04) — 그 둘은 ECOS 로 받아야 한다.
+INDICATORS = {"CPI": "CPIAUCSL", "금리": "FEDFUNDS", "실업률": "UNRATE",
+              "수출": "XTEXVA01KRM667N", "수입": "XTIMVA01KRM667N"}
 
 conn = sqlite3.connect("econ.db")
 cur = conn.cursor()
