@@ -6,13 +6,7 @@ const COMPANIES = [
   { t: 'AAPL', n: '애플' }, { t: 'MSFT', n: '마이크로소프트' }, { t: 'NVDA', n: '엔비디아' },
   { t: 'AMZN', n: '아마존' }, { t: 'GOOGL', n: '알파벳' }, { t: 'TSLA', n: '테슬라' }, { t: 'META', n: '메타' },
 ]
-const CO_NAME = Object.fromEntries(COMPANIES.map(c => [c.t, c.n]))
 
-const INDICATOR_INFO = {
-  CPI: '소비자물가지수 · 물가. 높으면 금리 인상 우려 → 주가 부담.',
-  금리: '기준금리 · 돈 빌리는 비용. 오르면 주가에 보통 부담.',
-  실업률: '일자리 없는 비율. 너무 낮으면 금리 인상 우려.',
-}
 const DOW = ['일', '월', '화', '수', '목', '금', '토']
 
 function dowOf(iso) {
@@ -65,11 +59,6 @@ function sentText(s) {
   if (s.includes('Bear') || s === '부정') return '부정'
   return '중립'
 }
-function groupBy(arr, key) {
-  const m = {}
-  for (const item of arr) (m[item[key]] = m[item[key]] || []).push(item)
-  return m
-}
 
 function Info({ text }) {
   const [o, setO] = useState(false)
@@ -103,45 +92,6 @@ function Modal({ children, onClose }) {
   )
 }
 
-// 무의존 SVG 라인차트 (숫자 + 그래프). data: 숫자 배열(과거→최신)
-function Chart({ data, dates, color = '#4ade80', mini = false, fmt = (v) => v, onPoint }) {
-  if (!data || data.length < 2) return mini ? null : <div className="chart-empty">그래프를 그릴 데이터가 부족합니다</div>
-  const W = mini ? 200 : 600
-  const H = mini ? 46 : 150
-  const pad = mini ? { x: 3, t: 5, b: 5 } : { x: 10, t: 16, b: 24 }
-  const min = Math.min(...data), max = Math.max(...data), span = (max - min) || 1
-  const n = data.length
-  const px = (i) => pad.x + (i / (n - 1)) * (W - pad.x * 2)
-  const py = (v) => pad.t + (1 - (v - min) / span) * (H - pad.t - pad.b)
-  const line = data.map((v, i) => `${px(i).toFixed(1)},${py(v).toFixed(1)}`).join(' ')
-  const area = `${px(0).toFixed(1)},${(H - pad.b).toFixed(1)} ${line} ${px(n - 1).toFixed(1)},${(H - pad.b).toFixed(1)}`
-  const last = data[n - 1]
-  return (
-    <svg className={`chart${mini ? ' mini' : ''}`} viewBox={`0 0 ${W} ${H}`} role="img" aria-label="추이 그래프">
-      <polygon points={area} fill={color} opacity="0.1" />
-      <polyline points={line} fill="none" stroke={color} strokeWidth="2" vectorEffect="non-scaling-stroke" strokeLinejoin="round" strokeLinecap="round" />
-      {mini
-        ? <circle cx={px(n - 1)} cy={py(last)} r={3} fill={color} />
-        : data.map((v, i) => (
-          <g key={i} className={onPoint ? 'cpt' : undefined} onClick={onPoint ? () => onPoint(i) : undefined}>
-            {onPoint && <circle cx={px(i)} cy={py(v)} r={13} fill="transparent" />}
-            <circle cx={px(i)} cy={py(v)} r={i === n - 1 ? 5 : 3.5} fill={color} stroke="#161a24" strokeWidth="1.5">
-              {dates && dates.length === n && <title>{dates[i]} · {fmt(v)}{onPoint ? ' (클릭하면 상세)' : ''}</title>}
-            </circle>
-          </g>
-        ))
-      }
-      {!mini && <>
-        <text x={pad.x} y={15} className="clbl" fill={color}>▲ {fmt(max)}</text>
-        <text x={pad.x} y={31} className="clbl cmin">▼ {fmt(min)}</text>
-        {dates && dates.length === n && <>
-          <text x={pad.x} y={H - 7} className="clbl cmin">{(dates[0] || '').slice(5)}</text>
-          <text x={W - pad.x} y={H - 7} className="clbl cmin" textAnchor="end">{(dates[n - 1] || '').slice(5)}</text>
-        </>}
-      </>}
-    </svg>
-  )
-}
 
 // ===== 탭 1: AI 추천 기사 =====
 // 방향 기호 — 긍정 ▲ / 부정 ▼ / 중립 ▬
@@ -863,57 +813,70 @@ function StocksTab() {
 // 지표 날짜 라벨. FRED 의 date 는 '발표일'이 아니라 '기준월'이다.
 // (9월분 물가는 10/14 에 발표) 그냥 date 만 찍으면 "9월에서 멈췄다"로 오해하게 돼서
 // 기준월과 실제 발표일을 함께 보여준다.
-function indLabel(r) {
-  if (!r) return ''
-  const m = `${r.date?.slice(0, 7).replace('-', '년 ')}월분`
-  if (!r.release_date) return m
-  const [, mm, dd] = r.release_date.split('-')
-  return `${m} · ${Number(mm)}/${Number(dd)} 발표`
-}
-
-// ===== 탭 3: 시장·지표 =====
+// ===== 탭 3: 경제지표 =====
+// 주가 카드를 걷어냈다. 검색도, 축도, 해설도 없는 7개 고정 카드였고
+// 종목별 탭이 같은 일을 전부 더 잘한다. 남은 게 지표뿐이라 탭 이름도 바꿨다.
+//
+// 숫자 가공은 전부 백엔드(indicators.py)에 있다. 단위 규칙 — 지수는 비율(%),
+// 금리·실업률은 차이(%p) — 을 화면에 흩어두면 또 틀린다.
 function MarketTab() {
-  const [prices, setPrices] = useState([])
-  const [indicators, setIndicators] = useState([])
+  const [items, setItems] = useState([])
+  const [failed, setFailed] = useState(false)
   useEffect(() => {
-    fetch(`${API}/api/prices`).then(r => r.json()).then(setPrices).catch(() => {})
-    fetch(`${API}/api/indicators`).then(r => r.json()).then(setIndicators).catch(() => {})
+    fetch(`${API}/api/indicators`)
+      .then(r => r.json())
+      .then(d => setItems(Array.isArray(d) ? d : []))
+      .catch(() => setFailed(true))
   }, [])
-  const byInd = groupBy(indicators, 'name')
-  const byTicker = groupBy(prices, 'ticker')
   return (
     <div className="panel">
-      <p className="lead">경제지표와 종목 시세 개요.</p>
-      <div className="label">경제지표</div>
-      <div className="grid">
-        {Object.entries(byInd).map(([name, rows]) => (
-          <div className="mcard" key={name}>
-            <div className="k">{name}<Info text={INDICATOR_INFO[name] || name} /></div>
-            <div className="v">{rows[0]?.value}</div>
-            <div className="d">{indLabel(rows[0])}</div>
-            <Chart data={[...rows].reverse().map(r => r.value)} mini color="#60a5fa" />
-          </div>
-        ))}
+      <p className="lead">물가, 금리, 일자리.</p>
+      {failed && <p className="chartcap">지표를 불러오지 못했습니다.</p>}
+      <div className="igrid">
+        {items.map(d => <IndCard key={d.name} d={d} />)}
       </div>
-      <div className="label">주가 (종가)</div>
-      <div className="grid">
-        {COMPANIES.map(c => {
-          // close 가 비어 있는 행(yfinance 미완성 봉)은 버린다 — 하나라도 섞이면
-          // toFixed 에서 터져 탭 전체가 흰 화면이 됐었다.
-          const rows = (byTicker[c.t] || []).filter(r => r.close != null)
-          if (!rows.length) return null
-          const asc = [...rows].reverse().map(r => r.close)
-          const rising = asc[asc.length - 1] >= asc[0]
-          return (
-            <div className="mcard" key={c.t}>
-              <div className="k">{c.t} · {c.n}</div>
-              <div className="v">${rows[0]?.close?.toFixed(2)}</div>
-              <div className="d">{rows[0]?.date}</div>
-              <Chart data={asc} mini color={rising ? '#4ade80' : '#f87171'} />
-            </div>
-          )
-        })}
+      <p className="chartcap">미국 FRED 자료 · 발표될 때마다 갱신됩니다.</p>
+    </div>
+  )
+}
+
+// 금액이 아니라 변화량이다. 부호를 꼭 붙인다 — '0.21%p' 와 '-0.21%p' 는 반대다
+function amount(a, sign = true) {
+  if (!a) return ''
+  return `${sign && a.value > 0 ? '+' : ''}${a.value.toFixed(a.decimals)}${a.unit}`
+}
+
+function IndCard({ d }) {
+  const pts = d.chart?.points || []
+  if (pts.length < 2) return null
+  // 기준선은 1년 전. 0 을 기준으로 잡으면 CPI 상승률(2~4%)이 바닥에 눌려
+  // 모양이 안 보인다. 12칸 전이 없으면 가진 것의 처음을 쓴다.
+  const bi = pts.length > 12 ? pts.length - 13 : 0
+  const baseline = pts[bi].rate
+  const baseName = pts.length > 12 ? '1년 전' : '시작'
+  const chg = pts[pts.length - 1].rate - baseline
+  const { decimals: dec, unit } = d.chart
+  const index = d.unit === 'index'
+  return (
+    <div className="icard">
+      <div className="ihead">
+        <span className="iname">{d.label}<Info text={d.about} /></span>
+        <span className="iwhen">{d.month}{d.released && ` · ${d.released}`}</span>
       </div>
+      <div className="ibig">{amount(d.headline, index)}</div>
+      <div className="isub">
+        {index ? '작년 같은 달 대비' : d.yoy && `작년보다 ${amount(d.yoy)}`}
+        {d.mom && ` · 전월보다 ${amount(d.mom)}`}
+      </div>
+      {/* 색은 좋고 나쁨이 아니라 방향이다. 실업률이 내리면 좋지만 너무 낮으면
+          금리 인상 우려가 되는 것처럼, 지표의 좋고 나쁨은 보는 쪽에 따라 다르다. */}
+      <AxisChart pts={pts} baseline={baseline} baseName={baseName}
+        color={dirColor(chg)} fmt={v => `${v.toFixed(dec)}${unit}`}
+        label={`${d.label} ${d.chart.from}부터 ${d.chart.to}까지 추이`} />
+      <p className="chartcap">{d.chart.from} ~ {d.chart.to} · {pts.length}개월</p>
+      {d.note && <p className="inote">{d.note}</p>}
+      {/* 계산한 숫자만 보여주면 틀렸을 때 알 수가 없다. 원값을 남긴다. */}
+      {index && <p className="iraw">지수 {d.raw.toFixed(d.raw_decimals)}</p>}
     </div>
   )
 }
@@ -1240,7 +1203,7 @@ function App() {
       <div className="tabs">
         <button className={`tab${tab === 'articles' ? ' active' : ''}`} onClick={() => setTab('articles')}>📰 AI 추천 기사</button>
         <button className={`tab${tab === 'stocks' ? ' active' : ''}`} onClick={() => setTab('stocks')}>📊 종목별</button>
-        <button className={`tab${tab === 'market' ? ' active' : ''}`} onClick={() => setTab('market')}>📈 시장·지표</button>
+        <button className={`tab${tab === 'market' ? ' active' : ''}`} onClick={() => setTab('market')}>📈 경제지표</button>
         <button className={`tab${tab === 'fx' ? ' active' : ''}`} onClick={() => setTab('fx')}>💱 환율</button>
       </div>
       {tab === 'articles' && <ArticlesTab />}
@@ -1423,19 +1386,20 @@ const CSS = `
 
   .chartbox { background:#161a24; border:1px solid #262c3a; border-radius:12px; padding:12px 14px 8px; margin:14px 0 4px; }
   .chartcap { font-size:.72rem; color:#6b7280; margin:0 0 8px; }
-  .chart { width:100%; height:auto; display:block; }
-  .chart.mini { margin-top:10px; }
-  .chart .clbl { font-size:13px; font-variant-numeric:tabular-nums; }
-  .chart .cmin { fill:#6b7280; }
-  .chart .cpt { cursor:pointer; }
-  .chart .cpt:hover circle:last-child { r:6; }
-  .chart-empty { font-size:.78rem; color:#6b7280; padding:10px 0; }
 
-  .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:11px; }
-  .mcard { background:#1a1e29; border:1px solid #262c3a; border-radius:12px; padding:14px; }
-  .mcard .k { font-size:.78rem; color:#8b93a1; display:flex; align-items:center; }
-  .mcard .v { font-size:1.15rem; font-weight:700; margin-top:6px; font-variant-numeric:tabular-nums; }
-  .mcard .d { font-size:.72rem; color:#6b7280; margin-top:2px; }
+  /* 한 줄에 하나씩 쌓는다. 2단으로 깔면 카드가 400px 쯤 되고, AxisChart 의
+     viewBox 가 600 이라 12px 눈금 글자가 8px 로 줄어 안 읽힌다. */
+  .igrid { display:grid; gap:14px; }
+  .icard { background:#1a1e29; border:1px solid #262c3a; border-radius:12px; padding:16px; min-width:0; }
+  .ihead { display:flex; justify-content:space-between; align-items:baseline; gap:10px; flex-wrap:wrap; }
+  .iname { font-size:.9rem; font-weight:700; color:#e6e8eb; display:flex; align-items:center; }
+  .iwhen { font-size:.72rem; color:#6b7280; font-variant-numeric:tabular-nums; }
+  .ibig { font-size:1.9rem; font-weight:700; margin-top:10px; letter-spacing:-.02em;
+          font-variant-numeric:tabular-nums; }
+  .isub { font-size:.76rem; color:#8b93a1; margin:2px 0 12px; font-variant-numeric:tabular-nums; }
+  .icard .chartcap { margin:6px 0 0; }
+  .inote { font-size:.82rem; color:#c9ced8; margin:6px 0 0; }
+  .iraw { font-size:.72rem; color:#6b7280; margin:4px 0 0; font-variant-numeric:tabular-nums; }
   .info { margin-left:6px; background:none; color:#6b7280; font-size:.75rem; cursor:pointer; border:1px solid #3a4152; border-radius:50%; width:17px; height:17px; padding:0; line-height:1; }
   .tip { position:absolute; background:#0f1117; border:1px solid #4ade80; border-radius:8px; padding:8px 10px; font-size:.75rem; color:#cbd5e1; max-width:220px; margin-top:4px; z-index:5; }
 

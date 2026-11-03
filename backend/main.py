@@ -9,6 +9,7 @@ import datetime
 
 from search_terms import POPULAR, expand
 import fxmarket
+import indicators
 
 app = FastAPI()
 
@@ -33,10 +34,17 @@ def list_prices():
 
 @app.get("/api/indicators")
 def list_indicators():
+    """지표를 사람이 읽는 꼴로 — 단위 규칙은 indicators.py 에 있다.
+
+    예전에는 행을 그대로 돌려줬다. 두 가지가 문제였다.
+      ① `CPI 336.298` 은 지수라서 그 숫자만으로는 아무 뜻이 없다
+      ② `ORDER BY date DESC LIMIT 50` 이 세 지표를 날짜순으로 **섞어서**
+         잘랐다. 지표당 16개월꼴이라, 44개월을 모아뒀는데 3분의 1만 갔다.
+    """
     conn = get_db()
-    rows = conn.execute("SELECT * FROM indicators ORDER BY date DESC LIMIT 50").fetchall()
+    out = indicators.build(conn)
     conn.close()
-    return [dict(r) for r in rows]
+    return out
 
 def pct_change(conn, ticker, start_date, days, window=7):
     """발표일(start_date) 직후 거래일 종가 → days 거래일 뒤 종가의 등락률(%).
