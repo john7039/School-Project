@@ -26,24 +26,74 @@ SPEC = {
         "unit": "index",
         "decimals": 1,          # 화면에 보이는 상승률 자릿수
         "raw_decimals": 3,      # 지수 원값 자릿수
-        "about": "소비자물가지수. 1982~84년 평균이 100 이라 숫자 자체는 뜻이 없고, "
-                 "작년 같은 달과 비교한 상승률이 흔히 말하는 '물가' 다. "
-                 "오르면 금리 인상 우려 → 주가 부담.",
+        "tip": {
+            "term": "Consumer Price Index · 소비자물가지수",
+            "what": "우리가 매달 사 먹고 쓰는 물건 값을 한 바구니에 담아, "
+                    "그 바구니가 작년보다 얼마나 비싸졌는지 잰다",
+            "effect": "오르면 같은 월급으로 살 수 있는 게 줄어든다",
+        },
+        # ⚠️ 교과서에 나오는 '보통 이렇게 작용한다' 다. 지금 데이터에 대한
+        #    주장이 아니다. 그래서 화면에도 "오르면 보통" 이라고 적는다.
+        "impact": [
+            ("🛒", "일상", "장바구니·외식비가 오른다"),
+            ("📉", "주식", "금리 인상 우려로 부담"),
+            ("🏦", "예적금", "이자를 받아도 실제 가치는 줄어든다"),
+        ],
+        "tags": {
+            1: "🚨 장바구니가 계속 비싸지고 있어요",
+            0: "➖ 물가 오름세가 제자리예요",
+            -1: "🧊 물가 오름세가 꺾였어요",
+        },
     },
     "금리": {
         "label": "기준금리",
         "unit": "percent",
         "decimals": 2,
-        "about": "미국 연방기금금리. 돈을 빌리는 값이다. 오르면 주가에 보통 부담.",
+        "tip": {
+            "term": "Federal Funds Rate · 미국 기준금리",
+            "what": "은행끼리 하루 돈을 빌릴 때의 값. 모든 대출과 예금 금리가 "
+                    "여기서부터 쌓여 올라간다",
+            "effect": "오르면 대출 이자가 늘고, 주식에서 예금으로 돈이 옮겨간다",
+        },
+        "impact": [
+            ("🏦", "예적금", "받는 이자가 늘어난다"),
+            ("🏠", "대출", "갚을 이자가 늘어난다"),
+            ("📉", "주식", "돈이 예금으로 빠져 부담"),
+        ],
+        "tags": {
+            1: "💰 대출 이자가 오르는 쪽이에요",
+            0: "➖ 금리가 멈춰 있어요",
+            -1: "💸 대출 이자가 내리는 쪽이에요",
+        },
     },
     "실업률": {
         "label": "실업률",
         "unit": "percent",
         "decimals": 1,
-        "about": "일자리를 찾았는데 못 구한 사람의 비율. "
-                 "너무 낮으면 임금이 올라 금리 인상 우려가 된다.",
+        "tip": {
+            "term": "Unemployment Rate · 실업률",
+            "what": "일할 생각이 있는 사람 100명 중 몇 명이 일자리를 못 구했는지. "
+                    "구직을 아예 포기한 사람은 여기 들어가지 않는다",
+            "effect": "오르면 소비가 줄고, 연준이 금리를 내릴 쪽으로 기운다",
+        },
+        "impact": [
+            ("🧑‍💼", "일자리", "채용이 줄고 이직이 어려워진다"),
+            ("🛒", "소비", "지갑을 닫아 경기가 식는다"),
+            ("💸", "금리", "연준이 내릴 쪽으로 기운다"),
+        ],
+        "tags": {
+            1: "🧑‍💼 일자리 구하기가 어려워지고 있어요",
+            0: "➖ 고용 사정이 비슷해요",
+            -1: "🙌 일자리 사정이 나아지고 있어요",
+        },
     },
 }
+
+# 3년 범위를 셋으로 가르는 경계. ⚠️ 1/3·2/3 은 내가 고른 값이다.
+# 다만 '안정·주의·경고' 같은 판단이 아니라 **관측된 범위 안의 위치**라서,
+# "왜 하필 이 선인가" 에 "지난 3년을 삼등분했다" 고 답할 수 있다.
+# 연준 목표 2% 를 기준으로 쓰지 않은 이유 — 그 목표는 CPI 가 아니라 PCE 기준이다.
+BAND_LOW, BAND_HIGH = 1 / 3, 2 / 3
 
 # 화면에 놓을 순서 — 물가, 그 때문에 움직이는 금리, 그리고 일자리
 ORDER = ["CPI", "금리", "실업률"]
@@ -166,10 +216,16 @@ def build(conn):
 
         direction, months = _streak([v for _, v in chart_pairs], dec)
 
+        # 숫자 하나만 보면 높은지 낮은지 알 수가 없다. 관측 범위를 옆에 놓는다.
+        cvals = [v for _, v in chart_pairs]
+        rlo, rhi = (min(cvals), max(cvals)) if cvals else (None, None)
+        pos = (headline - rlo) / (rhi - rlo) if cvals and rhi > rlo else None
+        band = None if pos is None else (
+            "low" if pos < BAND_LOW else ("high" if pos >= BAND_HIGH else "mid"))
+
         out.append({
             "name": name,
             "label": spec["label"],
-            "about": spec["about"],
             "unit": spec["unit"],
             "date": date,
             "month": _month_label(date),
@@ -181,6 +237,16 @@ def build(conn):
             "yoy": yoy,
             "mom": mom,
             "note": _note(name, direction, months),
+            "tag": spec["tags"].get(direction),
+            "tip": spec["tip"],
+            "impact": [{"icon": i, "where": w, "text": t} for i, w, t in spec["impact"]],
+            # 색은 높낮이만 나타낸다. 좋고 나쁨이 아니다 — 금리가 낮은 게 좋은지는
+            # 대출자냐 예금자냐에 따라 다르다. 화면에도 그렇게 적는다.
+            "band": None if band is None else {
+                "level": band, "pos": round(pos, 3),
+                "lo": round(rlo, dec), "hi": round(rhi, dec),
+                "years": round(len(cvals) / 12, 1),
+            },
             "chart": {
                 "unit": "%",
                 "decimals": dec,

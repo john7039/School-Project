@@ -835,6 +835,11 @@ function MarketTab() {
       <div className="igrid">
         {items.map(d => <IndCard key={d.name} d={d} />)}
       </div>
+      <p className="chartcap">
+        🔴🔵 뱃지는 <b>그래프에 보이는 기간 중 어디쯤인지</b>만 나타냅니다 — 좋고 나쁨이 아닙니다.
+        금리가 낮은 게 좋은지는 대출자냐 예금자냐에 따라 다르고, 실업률도 너무 낮으면
+        임금이 올라 물가를 밀어올립니다.
+      </p>
       <p className="chartcap">미국 FRED 자료 · 발표될 때마다 갱신됩니다.</p>
     </div>
   )
@@ -862,6 +867,28 @@ function Delta({ a, pre }) {
   )
 }
 
+// 뱃지 색은 **높낮이만** 나타낸다. 좋고 나쁨이 아니다 — 금리가 낮은 게 좋은지는
+// 대출자냐 예금자냐에 따라 다르고, 실업률도 너무 낮으면 임금이 올라 물가 압력이
+// 된다. '안정·주의·경고' 로 쓰지 않은 이유이기도 하다. 경계를 내가 정하게 되고
+// "왜 3.7% 가 경고인가" 에 답할 근거가 없다. 지난 3년 범위를 삼등분한 위치는
+// 계산이라 "지난 3년을 삼등분했다" 고 답할 수 있다.
+const BAND = {
+  high: { dot: '🔴', text: '높은 쪽' },
+  mid: { dot: '⚪', text: '중간' },
+  low: { dot: '🔵', text: '낮은 쪽' },
+}
+
+function Band({ b, dec, unit }) {
+  if (!b || !BAND[b.level]) return null
+  const { dot, text } = BAND[b.level]
+  return (
+    <span className={`ibadge b-${b.level}`}>
+      {dot} {text}
+      <span className="ibrange">{b.lo.toFixed(dec)}~{b.hi.toFixed(dec)}{unit}</span>
+    </span>
+  )
+}
+
 function IndCard({ d }) {
   const pts = d.chart?.points || []
   if (pts.length < 2) return null
@@ -881,9 +908,22 @@ function IndCard({ d }) {
   return (
     <div className="icard">
       <div className="ihead">
-        <span className="iname">{d.label}<Info text={d.about} /></span>
+        <span className="iname">
+          {d.label}
+          {d.tip && <Info text={<>
+            <p><b>뜻</b>{d.tip.term}</p>
+            <p><b>의미</b>{d.tip.what}</p>
+            <p><b>영향</b>{d.tip.effect}</p>
+          </>} />}
+        </span>
         <span className="iwhen">{d.month}{d.released && ` · ${d.released}`}</span>
       </div>
+      {(d.band || d.tag) && (
+        <div className="ihead2">
+          <Band b={d.band} dec={dec} unit={unit} />
+          {d.tag && <span className="itag">{d.tag}</span>}
+        </div>
+      )}
       <div className={`ibig${dir > 0 ? ' iup' : dir < 0 ? ' idown' : ''}`}>
         {amount(d.headline, index)}
       </div>
@@ -901,6 +941,18 @@ function IndCard({ d }) {
         label={`${d.label} ${d.chart.from}부터 ${d.chart.to}까지 추이`} />
       <p className="chartcap">{d.chart.from} ~ {d.chart.to} · {pts.length}개월</p>
       {d.note && <p className="inote">{d.note}</p>}
+      {/* 교과서에 나오는 방향이다. 지금 데이터에 대한 주장이 아니라서
+          "오르면 보통" 이라고 머리를 달았다. */}
+      {d.impact?.length > 0 && (
+        <div className="iimpact">
+          <span className="iimp-lbl">오르면 보통</span>
+          {d.impact.map(x => (
+            <span className="ichip" key={x.where}>
+              {x.icon} <b>{x.where}</b> {x.text}
+            </span>
+          ))}
+        </div>
+      )}
       {/* 계산한 숫자만 보여주면 틀렸을 때 알 수가 없다. 원값을 남긴다. */}
       {index && <p className="iraw">지수 {d.raw.toFixed(d.raw_decimals)}</p>}
     </div>
@@ -1436,13 +1488,30 @@ const CSS = `
           display:flex; flex-wrap:wrap; align-items:center; gap:3px 14px; }
   .idelta { display:inline-flex; align-items:center; gap:4px; font-weight:600; }
   .ipre { color:#9ca3af; font-weight:400; }
+  .ihead2 { display:flex; flex-wrap:wrap; align-items:center; gap:7px 10px; margin-top:10px; }
+  .ibadge { display:inline-flex; align-items:center; gap:5px; font-size:.72rem; font-weight:700;
+            padding:3px 9px; border-radius:999px; white-space:nowrap; }
+  .ibrange { font-weight:400; opacity:.75; font-variant-numeric:tabular-nums; }
+  .b-high { background:#2a1a1e; color:#f87171; border:1px solid #4a2630; }
+  .b-low { background:#16212e; color:#60a5fa; border:1px solid #27405c; }
+  .b-mid { background:#1e222b; color:#9ca3af; border:1px solid #333a4a; }
+  .itag { font-size:.84rem; font-weight:600; color:#e6e8eb; }
+  .iimpact { border-top:1px solid #262c3a; margin-top:11px; padding-top:9px;
+             display:flex; flex-wrap:wrap; align-items:center; gap:6px 8px; }
+  .iimp-lbl { font-size:.72rem; color:#9ca3af; font-weight:600; }
+  .ichip { display:inline-flex; align-items:center; gap:5px; font-size:.74rem; color:#8b93a1;
+           background:#161a24; border:1px solid #262c3a; border-radius:8px; padding:4px 8px; }
+  .ichip b { color:#c9ced8; font-weight:600; }
   .iup { color:#f87171; }
   .idown { color:#60a5fa; }
   .icard .chartcap { margin:6px 0 0; }
   .inote { font-size:.82rem; color:#c9ced8; margin:6px 0 0; }
   .iraw { font-size:.72rem; color:#9ca3af; margin:4px 0 0; font-variant-numeric:tabular-nums; }
   .info { margin-left:6px; background:none; color:#9ca3af; font-size:.75rem; cursor:pointer; border:1px solid #4b5563; border-radius:50%; width:17px; height:17px; padding:0; line-height:1; }
-  .tip { position:absolute; background:#0f1117; border:1px solid #4ade80; border-radius:8px; padding:8px 10px; font-size:.75rem; color:#cbd5e1; max-width:220px; margin-top:4px; z-index:5; }
+  .tip { position:absolute; background:#0f1117; border:1px solid #4ade80; border-radius:8px; padding:10px 12px; font-size:.75rem; color:#cbd5e1; max-width:300px; margin-top:4px; z-index:5; line-height:1.6; }
+  .tip p { margin:0 0 7px; }
+  .tip p:last-child { margin:0; }
+  .tip b { color:#4ade80; font-weight:700; margin-right:6px; }
 
   .modal-bg { position:fixed; inset:0; background:rgba(3,5,10,.72); display:flex; align-items:center; justify-content:center; padding:18px; z-index:50; }
   .modal { background:#1a1e29; border:1px solid #2f3646; border-radius:16px; padding:24px; max-width:540px; width:100%; max-height:86vh; overflow-y:auto; position:relative; }
