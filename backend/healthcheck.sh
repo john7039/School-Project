@@ -75,6 +75,12 @@ while read -r use mnt; do
                                || bad "디스크 $mnt $use (한계 ${DISK_LIMIT}%)"
 done < <(df --output=pcent,target / /home | tail -n +2)
 
+# ── 6. 지표가 늙지 않았는가 ──           
+while read -r st msg; do
+    [ "$st" = OK ] && ok "$msg" || bad "$msg"
+done < <(/home/miniserver/School-Project/backend/.venv/bin/python \
+         /home/miniserver/School-Project/backend/indicator_fresh.py)
+
 echo
 if [ "$fail" -eq 0 ]; then
     echo "전부 정상"
