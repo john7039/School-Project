@@ -1497,7 +1497,9 @@ const CSS = `
   .daysum { font-size:.78rem; color:#8b93a1; line-height:1.75; margin:8px 0 0;
             font-variant-numeric:tabular-nums; }
   .daysum b { color:#e6e8eb; }
-  .dayaxis { font-size:.68rem; color:#4b5563; line-height:1.5; margin:6px 0 0; }
+  /* 축 설명이 캡션보다 덜 중요할 이유가 없다. #4b5563 은 대비 2.2:1 로
+     작은 글자 기준(4.5:1)의 절반도 안 됐다. .chartcap 과 같게 맞춘다. */
+  .dayaxis { font-size:.72rem; color:#9ca3af; line-height:1.55; margin:7px 0 0; }
 
   /* 시간대가 다른 구역을 눈으로 가른다 — 위는 '지금·오늘', 아래는 '확정된 하루' */
   .seg { height:1px; margin:26px 0 2px;
