@@ -517,6 +517,8 @@ function StockDay({ d, ticker, c }) {
         {d.open_at}에 열고 {d.close_at}에 닫은 장 ({d.tz} 시각).
         {!d.kr && <> 한국 시각으로는 밤 11시 30분부터 다음날 아침 6시까지예요.</>}
       </p>
+      <p className="dayaxis">가로축 = 시각({d.tz}) · 5분마다 한 점.
+        세로축 = 주가({c?.unit}). 점선은 시작가 — 선이 점선 위면 시작보다 오른 것이에요.</p>
     </div>
   )
 }
@@ -733,11 +735,14 @@ function StocksTab() {
 
             {pts.length >= 2 && (
               <div className="chartbox">
-                <p className="chartcap">날짜별 종가. 점선은 맨 왼쪽 날의 값</p>
+                <p className="chartcap">날짜별 종가 · 장이 열린 날만 ({pts.length}거래일)</p>
                 <AxisChart pts={pts} baseline={pts[0].rate} baseName="시작"
                   color={rising ? '#4ade80' : '#f87171'}
                   fmt={v => money(v, found.quote)}
                   label={`${found.ticker} 최근 ${pts.length}거래일 종가 추이`} />
+                {/* 주말·휴장일이 빠진 그래프라, 달력일로 읽으면 간격이 안 맞는다. */}
+                <p className="dayaxis">가로축 = 거래일(월-일) — 주말·휴장일은 빠집니다.
+                  세로축 = 종가({found.quote?.unit}). 점선은 맨 왼쪽 날의 값이에요.</p>
               </div>
             )}
 
@@ -915,6 +920,12 @@ function IndCard({ d }) {
   const chg = pts[pts.length - 1].rate - baseline
   const { decimals: dec, unit } = d.chart
   const index = d.unit === 'index'
+  // ⚠️ 지표마다 세로축의 뜻이 다르다. 넷 다 눈금에 % 가 붙는데 의미가 둘로 갈린다.
+  //   물가·수출입  작년 같은 달과 비교한 변화율
+  //   금리·실업률  지표 값 그 자체
+  // 안 적어두면 물가 그래프를 '물가 지수' 로 읽게 된다.
+  const yLabel = d.unit === 'index' ? '작년 같은 달 대비 상승률'
+    : d.unit === 'amount' ? '작년 같은 달 대비 증감률' : d.label
   // x 눈금을 index 로 4등분하면 달 간격이 어긋난다. CPI 는 결측이 한 달 있어서
   // 24.01 · 24.11 · 25.11 · 26.09 로 나왔다. 달력에서 1월·7월을 집는다.
   const ticks = pts.reduce((a, pt, i) =>
@@ -955,6 +966,8 @@ function IndCard({ d }) {
         headroom={1.6} xticks={ticks}
         label={`${d.label} ${d.chart.from}부터 ${d.chart.to}까지 추이`} />
       <p className="chartcap">{d.chart.from} ~ {d.chart.to} · {pts.length}개월</p>
+      <p className="dayaxis">가로축 = 월(연.월) · 한 달에 한 점.
+        세로축 = {yLabel}({unit}). 점선은 {baseName} 값이에요.</p>
       {d.note && <p className="inote">{d.note}</p>}
       {/* 교과서에 나오는 방향이다. 지금 데이터에 대한 주장이 아니라서
           "오르면 보통" 이라고 머리를 달았다. */}
@@ -1120,6 +1133,7 @@ function FxDay({ d, name, unit }) {
         <span>{d.session}</span>
       </p>
       <AxisChart pts={d.points} baseline={d.open} baseName="개장" color={dirColor(d.chg)}
+        fmt={v => `${v.toFixed(2)}원`}
         label={`${d.day} 장중 ${name} 움직임. 개장 ${d.open.toFixed(2)}원에서 ${d.last.toFixed(2)}원`} />
       <p className="daysum">
         {d.open_at || '09:00'} 개장 <b>{d.open.toFixed(2)}원</b> → <b>{d.last.toFixed(2)}원</b>
@@ -1154,6 +1168,7 @@ function FxTrend({ series, name, unit }) {
       {/* baseName 은 짧게 — 눈금 라벨 자리가 93px 뿐이라 "15일 전 1340.84" 는 넘친다.
           점선이 무엇의 시작인지는 아래 설명문에 쓴다. */}
       <AxisChart pts={pts} baseline={base} baseName="시작" color={dirColor(chg)}
+        fmt={v => `${v.toFixed(2)}원`}
         label={`${name} 최근 ${pts.length}일 추이. ${base.toFixed(2)}원에서 ${last.toFixed(2)}원`} />
       <p className="daysum">
         {pts.length}일 전 <b>{base.toFixed(2)}원</b> → 지금 <b>{last.toFixed(2)}원</b>
