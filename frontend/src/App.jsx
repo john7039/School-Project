@@ -514,10 +514,10 @@ function StockDay({ d, ticker, c }) {
         fmt={v => money(v, c)}
         label={`${ticker} ${d.session} 장중 5분 단위 주가`} />
       <p className="chartcap">
-        {d.open_at}에 열고 {d.close_at}에 닫은 장 ({d.tz} 시각).
+        {d.open_at}에 열고 {d.close_at}에 닫은 장 ({d.tz} 시각) · 5분마다 한 점.
         {!d.kr && <> 한국 시각으로는 밤 11시 30분부터 다음날 아침 6시까지예요.</>}
       </p>
-      <p className="dayaxis">가로 시각 5분마다 · 세로 주가({c?.unit}) · 점선 시작가</p>
+      <p className="dayaxis">x축: 시각 · y축: 주가({c?.unit}) · 점선: 시작가</p>
     </div>
   )
 }
@@ -734,14 +734,13 @@ function StocksTab() {
 
             {pts.length >= 2 && (
               <div className="chartbox">
-                <p className="chartcap">최근 {pts.length}거래일의 종가를 하루에 한 점으로 이었어요</p>
+                <p className="chartcap">최근 {pts.length}거래일 종가 · 하루에 한 점 (주말·휴장일 제외)</p>
                 <AxisChart pts={pts} baseline={pts[0].rate} baseName="시작"
                   color={rising ? '#4ade80' : '#f87171'}
                   fmt={v => money(v, found.quote)}
                   label={`${found.ticker} 최근 ${pts.length}거래일 종가 추이`} />
                 {/* 주말·휴장일이 빠진 그래프라, 달력일로 읽으면 간격이 안 맞는다. */}
-                <p className="dayaxis">가로 거래일 하루마다 (주말·휴장일 제외) ·
-                  세로 종가({found.quote?.unit}) · 점선 첫날</p>
+                <p className="dayaxis">x축: 거래일 · y축: 종가({found.quote?.unit}) · 점선: 첫날</p>
               </div>
             )}
 
@@ -965,7 +964,7 @@ function IndCard({ d }) {
         headroom={1.6} xticks={ticks}
         label={`${d.label} ${d.chart.from}부터 ${d.chart.to}까지 추이`} />
       <p className="chartcap">{d.chart.from} ~ {d.chart.to} · {pts.length}개월</p>
-      <p className="dayaxis">가로 월 한 달마다 · 세로 <b>{yLabel}({unit})</b> · 점선 {baseName}</p>
+      <p className="dayaxis">x축: 월 · y축: <b>{yLabel}({unit})</b> · 점선: {baseName}</p>
       {d.note && <p className="inote">{d.note}</p>}
       {/* 교과서에 나오는 방향이다. 지금 데이터에 대한 주장이 아니라서
           "오르면 보통" 이라고 머리를 달았다. */}
@@ -1140,8 +1139,7 @@ function FxDay({ d, name, unit }) {
         </span>
         <br />이 장중 가장 높았을 때 {d.high.toFixed(2)}원 · 가장 낮았을 때 {d.low.toFixed(2)}원 · <b>변동폭 {d.span.toFixed(2)}원</b>
       </p>
-      <p className="dayaxis">가로 시각 5분마다 (<b>09:00 ~ 다음날 02:00</b>, 자정을 넘습니다) ·
-        세로 {unit}(원) · 점선 개장가</p>
+      <p className="dayaxis">x축: 시각 · y축: {unit}(원) · 점선: 개장가</p>
     </div>
   )
 }
@@ -1175,7 +1173,7 @@ function FxTrend({ series, name, unit }) {
         </span>
         <br />이 기간 가장 높았을 때 {Math.max(...vals).toFixed(2)}원 · 가장 낮았을 때 {Math.min(...vals).toFixed(2)}원
       </p>
-      <p className="dayaxis">가로 날짜 하루마다 · 세로 {unit}(원) · 점선 {pts.length}일 전</p>
+      <p className="dayaxis">x축: 날짜 · y축: {unit}(원) · 점선: {pts.length}일 전</p>
     </div>
   )
 }
