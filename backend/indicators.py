@@ -30,6 +30,7 @@ SPEC = {
         "unit": "index",
         "decimals": 1,          # 화면에 보이는 상승률 자릿수
         "raw_decimals": 3,      # 지수 원값 자릿수
+        "brief": "미국 노동통계국이 재는 물가. 작년 같은 달과 견준다",
         "tip": {
             "term": "Consumer Price Index · 소비자물가지수",
             "what": "우리가 매달 사 먹고 쓰는 물건 값을 한 바구니에 담아, "
@@ -53,6 +54,7 @@ SPEC = {
         "label": "기준금리",
         "unit": "percent",
         "decimals": 2,
+        "brief": "연준이 정하는 금리. 모든 대출·예금 금리의 바닥이 된다",
         "tip": {
             "term": "Federal Funds Rate · 미국 기준금리",
             "what": "은행끼리 하루 돈을 빌릴 때의 값. 모든 대출과 예금 금리가 "
@@ -74,6 +76,7 @@ SPEC = {
         "label": "실업률",
         "unit": "percent",
         "decimals": 1,
+        "brief": "일하려는 사람 중 일자리를 못 구한 사람의 비율",
         "tip": {
             "term": "Unemployment Rate · 실업률",
             "what": "일할 생각이 있는 사람 100명 중 몇 명이 일자리를 못 구했는지. "
@@ -96,6 +99,7 @@ SPEC = {
         "unit": "index",
         "decimals": 1,
         "raw_decimals": 3,
+        "brief": "통계청이 재는 물가. 작년 같은 달과 견준다",
         # 기준연도가 미국과 다르다 (한국 2020=100, 미국 1982~84=100).
         # 상승률로 바꿔 쓰니 상관없다 — 지수 값끼리 비교하지만 않으면 된다.
         "tip": {
@@ -119,6 +123,7 @@ SPEC = {
         "label": "콜금리",
         "unit": "percent",
         "decimals": 2,
+        "brief": "은행끼리 하루 빌릴 때의 금리. 한국은행 기준금리를 따라간다",
         # ⚠️ 한국은행 기준금리가 아니다. 기준금리는 ECOS 에만 있다.
         #    콜금리는 한국은행이 기준금리에 맞춰 유도하는 시장금리라 가깝게
         #    움직이지만 같은 수치는 아니다. 화면에도 그렇게 쓴다.
@@ -146,6 +151,7 @@ SPEC = {
         "raw_decimals": 1,
         "raw_div": 1e8,        # 달러 → 억 달러
         "raw_unit": "억 달러",
+        "brief": "한 달 동안 외국에 물건을 팔아 번 돈",
         # ⚠️ 계절 조정을 안 한 시리즈다 (OECD ADJUSTMENT: N). 2월이 짧고 설
         #    연휴가 있어서 **3월은 해마다 크게 뛴다** — 2010년 이후 전월 대비
         #    상위 10개 중 여섯이 3월이다. 전월과 비교하면 숫자가 거짓말을 한다.
@@ -175,6 +181,7 @@ SPEC = {
         "raw_decimals": 1,
         "raw_div": 1e8,
         "raw_unit": "억 달러",
+        "brief": "한 달 동안 외국에서 물건을 사 온 돈",
         "mom": False,
         "tip": {
             "term": "Imports of Goods · 상품 수입액",
@@ -377,6 +384,7 @@ def build(conn):
             "mom": mom,
             "note": _note(name, direction, months),
             "tag": spec["tags"].get(_tag_key(spec, direction, headline)),
+            "brief": spec.get("brief"),
             "tip": spec["tip"],
             "impact": [{"icon": i, "where": w, "text": t} for i, w, t in spec["impact"]],
             # 색은 높낮이만 나타낸다. 좋고 나쁨이 아니다 — 금리가 낮은 게 좋은지는

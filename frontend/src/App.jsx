@@ -1010,6 +1010,7 @@ function IndCard({ d }) {
         <span className="iname">{d.label}</span>
         <span className="iwhen">{d.month}{d.released && ` · ${d.released}`}</span>
       </div>
+      {d.brief && <p className="ibrief">{d.brief}</p>}
       {(d.band || d.tag) && (
         <div className="ihead2">
           <Band b={d.band} dec={dec} unit={unit} />
@@ -1034,18 +1035,6 @@ function IndCard({ d }) {
       <p className="chartcap">{d.chart.from} ~ {d.chart.to} · {pts.length}개월</p>
       <p className="dayaxis">x축: 월 · y축: <b>{yLabel}({unit})</b> · 점선: {baseName}</p>
       {d.note && <p className="inote">{d.note}</p>}
-      {/* 교과서에 나오는 방향이다. 지금 데이터에 대한 주장이 아니라서
-          "오르면 보통" 이라고 머리를 달았다. */}
-      {d.impact?.length > 0 && (
-        <div className="iimpact">
-          <span className="iimp-lbl">오르면 보통</span>
-          {d.impact.map(x => (
-            <span className="ichip" key={x.where}>
-              {x.icon} <b>{x.where}</b> {x.text}
-            </span>
-          ))}
-        </div>
-      )}
       {/* 계산한 숫자만 보여주면 틀렸을 때 알 수가 없다. 원값을 남긴다. */}
       {d.raw != null && d.unit !== 'percent' && (
         <p className="iraw">
@@ -1600,12 +1589,7 @@ const CSS = `
   .b-low { background:#16212e; color:#60a5fa; border:1px solid #27405c; }
   .b-mid { background:#1e222b; color:#9ca3af; border:1px solid #333a4a; }
   .itag { font-size:.84rem; font-weight:600; color:#e6e8eb; }
-  .iimpact { border-top:1px solid #262c3a; margin-top:11px; padding-top:9px;
-             display:flex; flex-wrap:wrap; align-items:center; gap:6px 8px; }
-  .iimp-lbl { font-size:.72rem; color:#9ca3af; font-weight:600; }
-  .ichip { display:inline-flex; align-items:center; gap:5px; font-size:.74rem; color:#8b93a1;
-           background:#161a24; border:1px solid #262c3a; border-radius:8px; padding:4px 8px; }
-  .ichip b { color:#c9ced8; font-weight:600; }
+  .ibrief { font-size:.78rem; color:#9ca3af; margin:6px 0 0; line-height:1.55; }
   .iup { color:#f87171; }
   .idown { color:#60a5fa; }
   .icard .chartcap { margin:6px 0 0; }
