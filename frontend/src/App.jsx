@@ -60,22 +60,6 @@ function sentText(s) {
   return '중립'
 }
 
-function Info({ text }) {
-  const [o, setO] = useState(false)
-  useEffect(() => {
-    if (!o) return
-    const close = () => setO(false)
-    window.addEventListener('click', close)
-    return () => window.removeEventListener('click', close)
-  }, [o])
-  return (
-    <>
-      <button className="info" onClick={(e) => { e.stopPropagation(); setO(!o) }}>ⓘ</button>
-      {o && <div className="tip">{text}</div>}
-    </>
-  )
-}
-
 function Modal({ children, onClose }) {
   useEffect(() => {
     const onKey = (e) => { if (e.key === 'Escape') onClose() }
@@ -932,16 +916,13 @@ function IndCard({ d }) {
   return (
     <div className="icard">
       <div className="ihead">
-        <span className="iname">
-          {d.label}
-          {d.tip && <Info text={<>
-            <p><b>뜻</b>{d.tip.term}</p>
-            <p><b>의미</b>{d.tip.what}</p>
-            <p><b>영향</b>{d.tip.effect}</p>
-          </>} />}
-        </span>
+        <span className="iname">{d.label}</span>
         <span className="iwhen">{d.month}{d.released && ` · ${d.released}`}</span>
       </div>
+      {/* ⓘ 안에 넣어뒀더니 눌러야 보여서 사실상 안 읽혔다. CPI 가 뭔지 모르면
+          숫자도 뜻이 없으므로 이름 바로 밑에 꺼내 둔다. '영향' 은 아래
+          "오르면 보통" 칩이 같은 일을 해서 뺐다. */}
+      {d.tip && <p className="iwhat"><b>{d.tip.term}</b> — {d.tip.what}</p>}
       {(d.band || d.tag) && (
         <div className="ihead2">
           <Band b={d.band} dec={dec} unit={unit} />
@@ -1524,6 +1505,8 @@ const CSS = `
   .idelta { display:inline-flex; align-items:center; gap:4px; font-weight:600; }
   .ipre { color:#9ca3af; font-weight:400; }
   .clabel { font-size:.8rem; font-weight:700; color:#c9ced8; margin:18px 0 9px; }
+  .iwhat { font-size:.78rem; color:#9ca3af; line-height:1.6; margin:7px 0 0; }
+  .iwhat b { color:#c9ced8; font-weight:600; }
   .ihead2 { display:flex; flex-wrap:wrap; align-items:center; gap:7px 10px; margin-top:10px; }
   .ibadge { display:inline-flex; align-items:center; gap:5px; font-size:.72rem; font-weight:700;
             padding:3px 9px; border-radius:999px; white-space:nowrap; }
@@ -1543,11 +1526,6 @@ const CSS = `
   .icard .chartcap { margin:6px 0 0; }
   .inote { font-size:.82rem; color:#c9ced8; margin:6px 0 0; }
   .iraw { font-size:.72rem; color:#9ca3af; margin:4px 0 0; font-variant-numeric:tabular-nums; }
-  .info { margin-left:6px; background:none; color:#9ca3af; font-size:.75rem; cursor:pointer; border:1px solid #4b5563; border-radius:50%; width:17px; height:17px; padding:0; line-height:1; }
-  .tip { position:absolute; background:#0f1117; border:1px solid #4ade80; border-radius:8px; padding:10px 12px; font-size:.75rem; color:#cbd5e1; max-width:300px; margin-top:4px; z-index:5; line-height:1.6; }
-  .tip p { margin:0 0 7px; }
-  .tip p:last-child { margin:0; }
-  .tip b { color:#4ade80; font-weight:700; margin-right:6px; }
 
   .modal-bg { position:fixed; inset:0; background:rgba(3,5,10,.72); display:flex; align-items:center; justify-content:center; padding:18px; z-index:50; }
   .modal { background:#1a1e29; border:1px solid #2f3646; border-radius:16px; padding:24px; max-width:540px; width:100%; max-height:86vh; overflow-y:auto; position:relative; }
