@@ -840,7 +840,7 @@ function DiffChart({ pts, fmt, label }) {
       {[['a', '#fbbf24', '미국'], ['b', '#60a5fa', '한국']].map(([k, c, nm]) => (
         <g key={k}>
           <circle cx={px(last)} cy={py(pts[last][k])} r="4" fill={c}
-            stroke="#161a24" strokeWidth="1.5" />
+            stroke="#1f2536" strokeWidth="1.5" />
           <text x={W - padR + 7} y={py(pts[last][k]) + 4} className="axl" fill={c}>
             {nm} {fmt(pts[last][k])}
           </text>
@@ -1154,7 +1154,7 @@ function AxisChart({ pts, baseline, baseName, color, label, fmt, headroom = 1, x
       <polygon points={area} fill={color} opacity="0.12" />
       <polyline points={line} fill="none" stroke={color} strokeWidth="2"
         vectorEffect="non-scaling-stroke" strokeLinejoin="round" strokeLinecap="round" />
-      <circle cx={px(last)} cy={py(vals[last])} r="4" fill={color} stroke="#161a24" strokeWidth="1.5" />
+      <circle cx={px(last)} cy={py(vals[last])} r="4" fill={color} stroke="#1f2536" strokeWidth="1.5" />
       {xi.map((ix, i) => (
         <text key={ix} x={px(ix)} y={H - 8} className="axl"
           textAnchor={i === 0 ? 'start' : ix === last ? 'end' : 'middle'}>{pts[ix].t}</text>
@@ -1492,6 +1492,18 @@ function App() {
 }
 
 const CSS = `
+  /* ── 표면 계단 ──
+     카드가 배경에서 안 떴다. 큰 카드가 네 가지 색으로 흩어져 있었고
+     (#161a24 1.08:1 · #161b26 1.10 · #1a1e29 1.13 · #1b2130 1.17),
+     카드끼리 대비가 1.01:1 이라 나란히 두면 한 덩어리로 보였다.
+     한 값으로 모으고, 그 위에 얹히는 알갱이를 한 단 더 올린다. */
+  :root {
+    --sunk:#141822;   /* 눌린 것 — 입력칸. 배경대비 1.06:1 */
+    --s1:#1f2536;     /* 카드.                배경대비 1.24:1 */
+    --s1h:#2a3248;    /* 카드 hover.          배경대비 1.48:1 */
+    --s2:#2d364d;     /* 카드 위의 칩·뱃지.     배경대비 1.57:1 · 카드대비 1.27:1 */
+    --line:#2f3850;   /* 테두리.              카드대비 1.31:1 */
+  }
   body { background:#0f1117; color:#e6e8eb; font-family:system-ui,"Apple SD Gothic Neo",sans-serif; margin:0; }
   .wrap { max-width:1120px; margin:0 auto; padding:0 18px 60px; }
 /* 종목별 탭만 두 칼럼이라 넓다. 나머지 탭은 840px 그대로 보이게 묶어둔다 —
@@ -1507,7 +1519,7 @@ const CSS = `
      넓어졌고, 그때 CSS 주석에 "탭바도 같이 넓어진다" 고만 써두고 뒀다.
      그래서 탭바 왼쪽선이 카드보다 140px 왼쪽에 있었다. */
   .tabs { position:sticky; top:0; background:#0f1117; z-index:10; }
-  .tabs-in { max-width:840px; margin:0 auto; display:flex; gap:2px; padding-top:6px; border-bottom:1px solid #262c3a; }
+  .tabs-in { max-width:840px; margin:0 auto; display:flex; gap:2px; padding-top:6px; border-bottom:1px solid var(--line); }
   /* flex:1 을 뺀다. 넷이 1120px 을 나눠 가져서 탭 하나가 280px 인데 글자는
      70px 이었다 — 210px 이 빈 공간이었다. 이제 글자 폭만큼만 차지한다. */
   .tab { background:none; border:none; color:#8b93a1; font:inherit; font-size:.82rem; font-weight:600; padding:12px 14px; cursor:pointer; border-bottom:2px solid transparent; margin-bottom:-1px; white-space:nowrap; }
@@ -1532,10 +1544,8 @@ const CSS = `
   /* ── 홈 화면 ── */
   .htop { display:flex; align-items:baseline; justify-content:space-between; gap:16px; flex-wrap:wrap; }
   .hdate { color:#9ca3af; font-size:.84rem; font-variant-numeric:tabular-nums; }
-  /* 카드가 배경에서 안 떴다 — #0f1117 대 #161a24 가 1.08:1 이다.
-     #1b2130 으로 올리면 1.17:1. 아직 낮지만 테두리(#2f3850)가 받쳐준다. */
   .hgrid { display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:12px; margin-bottom:4px; }
-  .hcard { background:#1b2130; border:1px solid #2f3850; border-radius:14px; padding:16px 17px; }
+  .hcard { background:var(--s1); border:1px solid #2f3850; border-radius:14px; padding:16px 17px; }
   .hname { font-size:.78rem; color:#9ca3af; font-weight:600; }
   .hbig { font-size:1.6rem; font-weight:700; margin:7px 0 5px; font-variant-numeric:tabular-nums; letter-spacing:-.02em; }
   .hband { font-size:.78rem; font-weight:600; }
@@ -1544,16 +1554,16 @@ const CSS = `
   /* ⚠️ 230px 이면 840px 안에 3개가 들어가서 네 번째(환율)만 혼자 다음 줄에
      남는다. 320px 으로 올리면 2×2 로 떨어진다. 좁은 화면에서는 1열이 된다. */
   .hmore { display:grid; grid-template-columns:repeat(auto-fit,minmax(320px,1fr)); gap:11px; }
-  .hmcard { background:#161b26; border:1px solid #262c3a; border-radius:12px; padding:14px 16px;
+  .hmcard { background:var(--s1); border:1px solid var(--line); border-radius:12px; padding:14px 16px;
             text-align:left; font:inherit; color:inherit; cursor:pointer; }
-  .hmcard:hover { border-color:#3a4257; background:#1b2130; }
+  .hmcard:hover { border-color:#3a4257; background:var(--s1h); }
   .hmcard:focus-visible { outline:2px solid #4ade80; outline-offset:2px; }
   .hmname { font-size:.88rem; font-weight:700; margin-bottom:4px; }
   .hmdesc { font-size:.76rem; color:#9ca3af; line-height:1.55; }
   .up { color:#4ade80; } .down { color:#f87171; }
 
   .chips { display:flex; gap:8px; overflow-x:auto; padding-bottom:6px; }
-  .chip { flex:0 0 auto; background:#1a1e29; border:1px solid #262c3a; border-radius:10px; padding:9px 13px; cursor:pointer; font:inherit; color:#8b93a1; text-align:center; min-width:76px; }
+  .chip { flex:0 0 auto; background:var(--s2); border:1px solid var(--line); border-radius:10px; padding:9px 13px; cursor:pointer; font:inherit; color:#8b93a1; text-align:center; min-width:76px; }
   .chip:hover { border-color:#3a4358; color:#e6e8eb; }
   .chip.on { border-color:#1c4a2b; background:#12351f; color:#4ade80; }
   .ct { font-weight:700; font-size:.85rem; } .cn { font-size:.66rem; opacity:.85; margin-top:1px; }
@@ -1568,7 +1578,7 @@ const CSS = `
   @keyframes spin { to { transform:rotate(360deg); } }
   @media (prefers-reduced-motion: reduce) { .spin { animation-duration:3s; } }
 
-  .empty { background:#161b26; border:1px solid #262c3a; border-radius:13px; padding:16px; }
+  .empty { background:var(--s1); border:1px solid var(--line); border-radius:13px; padding:16px; }
   .empty .lead { margin:0 0 4px; }
   .empty-h { font-size:.82rem; color:#8b93a1; margin:12px 0 8px; }
 
@@ -1579,7 +1589,7 @@ const CSS = `
   /* 카드 겉면 기업 뱃지 · 범위 안내 · 접기 */
   .impbadges { display:flex; align-items:center; gap:6px; flex-wrap:wrap; margin-top:10px; }
   .impbadges-h { font-size:.78rem; opacity:.7; }
-  .impbadge { font-size:.72rem; padding:3px 9px; border-radius:20px; background:#212734; color:#9aa4b2; white-space:nowrap; }
+  .impbadge { font-size:.72rem; padding:3px 9px; border-radius:20px; background:var(--s2); color:#9aa4b2; white-space:nowrap; }
   .impbadge.pos { background:#12351f; color:#4ade80; }
   .impbadge.neg { background:#3a1518; color:#f87171; }
   .impbadge .est { font-style:normal; font-size:.62rem; opacity:.7; margin-left:4px; padding-left:5px; border-left:1px solid currentColor; }
@@ -1587,23 +1597,23 @@ const CSS = `
   .m-orig { font-size:.78rem; color:#9ca3af; margin-top:3px; line-height:1.45; }
   .art.thin { padding:12px 14px; }
   .art.thin .atitle { font-size:.9rem; font-weight:600; }
-  .foldbtn { width:100%; text-align:left; background:none; border:none; border-top:1px solid #262c3a; color:#8b93a1; font:inherit; font-size:.82rem; padding:12px 2px; margin-top:14px; cursor:pointer; }
+  .foldbtn { width:100%; text-align:left; background:none; border:none; border-top:1px solid var(--line); color:#8b93a1; font:inherit; font-size:.82rem; padding:12px 2px; margin-top:14px; cursor:pointer; }
   .foldbtn:hover { color:#e6e8eb; }
   .imp-kind { font-size:.76rem; color:#9ca3af; margin:10px 0 7px; }
   .imp-kind i { font-style:normal; color:#8b7a3a; }
 
   /* 기사 검색 — AI 선별 카드와 기업별 영향 */
   .pickcard { margin-bottom:14px; }
-  .pickbox { background:#161b26; border:1px dashed #2f3646; border-radius:13px; padding:15px 16px; margin-bottom:14px; }
+  .pickbox { background:var(--s1); border:1px dashed #2f3646; border-radius:13px; padding:15px 16px; margin-bottom:14px; }
   .pickbox-t { font-size:.86rem; color:#8b93a1; margin-bottom:10px; }
   .search-btn.wide { width:100%; padding:13px; }
   .search-btn .dim { opacity:.7; font-weight:400; }
   .thinking { font-size:.9rem; color:#4ade80; line-height:1.5; }
   .thinking-sub { font-size:.78rem; color:#9ca3af; margin-top:5px; }
   .imps { display:flex; flex-direction:column; gap:9px; }
-  .imp { background:#12151d; border:1px solid #262c3a; border-radius:11px; padding:11px 13px; }
+  .imp { background:var(--sunk); border:1px solid var(--line); border-radius:11px; padding:11px 13px; }
   .imp-top { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:6px; }
-  .imp-tk { font-size:.66rem; color:#8b93a1; background:#212734; padding:2px 7px; border-radius:5px; font-variant-numeric:tabular-nums; }
+  .imp-tk { font-size:.66rem; color:#8b93a1; background:var(--s2); padding:2px 7px; border-radius:5px; font-variant-numeric:tabular-nums; }
   .imp-why { font-size:.84rem; color:#9aa4b2; line-height:1.55; }
   .imp-all { margin-top:9px; font-size:.8rem; color:#8b93a1; line-height:1.5; }
   .imp-none { font-size:.84rem; color:#9ca3af; line-height:1.55; }
@@ -1611,13 +1621,13 @@ const CSS = `
   /* 기사 검색 */
   .search { margin:6px 0 18px; }
   .search-row { display:flex; gap:8px; }
-  .search-in { flex:1; min-width:0; background:#12151d; border:1px solid #262c3a; border-radius:11px; padding:12px 14px; font:inherit; font-size:.95rem; color:#e6e8eb; }
+  .search-in { flex:1; min-width:0; background:var(--sunk); border:1px solid var(--line); border-radius:11px; padding:12px 14px; font:inherit; font-size:.95rem; color:#e6e8eb; }
   .search-in::placeholder { color:#5b6372; }
   .search-in:focus { outline:none; border-color:#2f6b45; }
   .search-btn { flex:0 0 auto; background:#12351f; border:1px solid #1c4a2b; color:#4ade80; border-radius:11px; padding:12px 18px; font:inherit; font-weight:700; cursor:pointer; }
   .search-btn:hover:not(:disabled) { background:#174227; }
   .search-btn:disabled { opacity:.55; cursor:default; }
-  .search-clear { flex:0 0 auto; background:#1a1e29; border:1px solid #262c3a; color:#8b93a1; border-radius:11px; padding:12px 14px; font:inherit; cursor:pointer; }
+  .search-clear { flex:0 0 auto; background:var(--s2); border:1px solid var(--line); color:#8b93a1; border-radius:11px; padding:12px 14px; font:inherit; cursor:pointer; }
   .search-clear:hover { border-color:#3a4358; color:#e6e8eb; }
   .search-chips { display:flex; gap:7px; flex-wrap:wrap; margin-top:9px; }
   .search-chips .chip { min-width:0; padding:6px 12px; font-size:.8rem; }
@@ -1632,40 +1642,40 @@ const CSS = `
   .scroll { display:flex; flex-direction:column; gap:10px; max-height:460px; overflow-y:auto; padding-right:4px; }
   .scroll::-webkit-scrollbar { width:8px; } .scroll::-webkit-scrollbar-thumb { background:#2f3646; border-radius:4px; }
 
-  .day, .art { display:block; width:100%; text-align:left; font:inherit; color:inherit; cursor:pointer; background:#1a1e29; border:1px solid #262c3a; border-radius:13px; padding:15px 16px; }
+  .day, .art { display:block; width:100%; text-align:left; font:inherit; color:inherit; cursor:pointer; background:var(--s1); border:1px solid var(--line); border-radius:13px; padding:15px 16px; }
   .day:hover, .art:hover { border-color:#3a4358; }
-  .day.today, .art.today { border-color:#1c4a2b; background:linear-gradient(180deg,#16241b 0%,#1a1e29 60%); }
+  .day.today, .art.today { border-color:#1c4a2b; background:linear-gradient(180deg,#1b2f22 0%,var(--s1) 60%); }
   .day-top, .atop { display:flex; align-items:center; gap:8px; font-size:.78rem; color:#8b93a1; margin-bottom:9px; font-variant-numeric:tabular-nums; }
   .badge { background:#4ade80; color:#06210f; font-weight:800; font-size:.64rem; padding:2px 7px; border-radius:5px; }
   .day-metrics { display:flex; gap:16px; flex-wrap:wrap; align-items:baseline; }
   .metric .v { font-weight:700; font-variant-numeric:tabular-nums; } .metric .v.big { font-size:1.05rem; }
   .metric .k { font-size:.68rem; color:#9ca3af; display:block; }
-  .flow { font-size:.72rem; padding:2px 8px; border-radius:20px; background:#212734; color:#9aa4b2; }
+  .flow { font-size:.72rem; padding:2px 8px; border-radius:20px; background:var(--s2); color:#9aa4b2; }
   .flow.buy { background:#12351f; color:#4ade80; } .flow.sell { background:#3a1518; color:#f87171; }
   .day-sum { margin-top:10px; font-size:.78rem; color:#8b93a1; line-height:1.45; }
   .day-foot { margin-top:9px; font-size:.74rem; color:#9ca3af; display:flex; justify-content:space-between; }
   .arrow { color:#4ade80; }
   .atitle { font-size:.98rem; font-weight:650; line-height:1.45; }
-  .sent { font-size:.68rem; padding:2px 8px; border-radius:20px; background:#212734; color:#9aa4b2; }
+  .sent { font-size:.68rem; padding:2px 8px; border-radius:20px; background:var(--s2); color:#9aa4b2; }
   .sent.pos { background:#12351f; color:#4ade80; } .sent.neg { background:#3a1518; color:#f87171; }
 
-  .fxcard { background:#1a1e29; border:1px solid #262c3a; border-radius:13px; padding:15px 16px 10px; margin-bottom:12px; }
-  .fxcard.main { border-color:#2b3a55; background:linear-gradient(180deg,#161d2b 0%,#1a1e29 60%); }
+  .fxcard { background:var(--s1); border:1px solid var(--line); border-radius:13px; padding:15px 16px 10px; margin-bottom:12px; }
+  .fxcard.main { border-color:#2b3a55; background:linear-gradient(180deg,#1c2639 0%,var(--s1) 60%); }
   .fxhead { display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; }
   .fxname { font-size:1rem; font-weight:700; } .fxsub { font-size:.7rem; color:#9ca3af; }
-  .fxdir { font-size:.72rem; padding:3px 9px; border-radius:20px; background:#212734; color:#9aa4b2; white-space:nowrap; }
+  .fxdir { font-size:.72rem; padding:3px 9px; border-radius:20px; background:var(--s2); color:#9aa4b2; white-space:nowrap; }
   .fxdir.weak { background:#3a2a12; color:#fbbf24; }   /* 원화 약세 — 좋/나쁨 아닌 '방향' */
   .fxdir.strong { background:#13273f; color:#60a5fa; } /* 원화 강세 */
   .fxrate { font-size:1.5rem; font-weight:700; margin:8px 0 2px; font-variant-numeric:tabular-nums; }
   .fxrate .won { font-size:.9rem; font-weight:600; color:#8b93a1; margin-left:2px; }
   .fxchg { font-size:.82rem; font-weight:600; margin-left:10px; }
-  .fxedu { background:#161a24; border:1px solid #262c3a; border-radius:12px; padding:14px 16px; font-size:.86rem; line-height:1.7; color:#c4cad4; }
+  .fxedu { background:var(--s1); border:1px solid var(--line); border-radius:12px; padding:14px 16px; font-size:.86rem; line-height:1.7; color:#c4cad4; }
   .fxedu p { margin:0 0 10px; } .fxedu ul { margin:0 0 10px; padding-left:18px; }
   .fxedu li { margin-bottom:7px; } .fxedu b { color:#e6e8eb; }
   .fxnote { font-size:.82rem; color:#8b93a1; margin-bottom:6px !important; }
 
   /* 지금 환율 — 확정 종가 카드와 구별되게 테두리를 파랗게 */
-  .fxnow { background:linear-gradient(180deg,#131b2a 0%,#161a24 70%); border:1px solid #2b3a55;
+  .fxnow { background:linear-gradient(180deg,#19233a 0%,var(--s1) 70%); border:1px solid #2b3a55;
            border-radius:13px; padding:13px 16px 11px; margin:4px 0 2px; }
   .fxnow-top { display:flex; align-items:baseline; justify-content:space-between; gap:10px;
                flex-wrap:wrap; margin-bottom:7px; }
@@ -1681,13 +1691,13 @@ const CSS = `
   .fxnow-note b { color:#8b93a1; }
 
   /* 오늘 움직임 그래프 */
-  .daybox { background:#161a24; border:1px solid #262c3a; border-radius:12px;
+  .daybox { background:var(--s1); border:1px solid var(--line); border-radius:12px;
             padding:12px 14px 10px; margin:10px 0 2px; }
   .daycap { font-size:.72rem; color:#9ca3af; margin:0 0 6px;
             display:flex; justify-content:space-between; gap:10px; flex-wrap:wrap; }
   .daycap b { color:#c4cad4; }
   .daychart { width:100%; height:auto; display:block; }
-  .daychart .gl { stroke:#262c3a; stroke-width:1; }
+  .daychart .gl { stroke:var(--line); stroke-width:1; }
   .daychart .gl.open { stroke:#4b5563; stroke-dasharray:4 4; }   /* 시작가 기준선 */
   .daychart .axl { font-size:12px; fill:#9ca3af; font-variant-numeric:tabular-nums; }
   .daysum { font-size:.78rem; color:#8b93a1; line-height:1.75; margin:8px 0 0;
@@ -1703,13 +1713,13 @@ const CSS = `
   .segnote { font-size:.74rem; color:#9ca3af; line-height:1.6; margin:0 0 10px; }
   .segnote b { color:#8b93a1; }
 
-  .chartbox { background:#161a24; border:1px solid #262c3a; border-radius:12px; padding:12px 14px 8px; margin:14px 0 4px; }
+  .chartbox { background:var(--s1); border:1px solid var(--line); border-radius:12px; padding:12px 14px 8px; margin:14px 0 4px; }
   .chartcap { font-size:.72rem; color:#9ca3af; margin:0 0 8px; }
 
   /* 한 줄에 하나씩 쌓는다. 2단으로 깔면 카드가 400px 쯤 되고, AxisChart 의
      viewBox 가 600 이라 12px 눈금 글자가 8px 로 줄어 안 읽힌다. */
   .igrid { display:grid; gap:14px; }
-  .icard { background:#1a1e29; border:1px solid #262c3a; border-radius:12px; padding:16px; min-width:0; }
+  .icard { background:var(--s1); border:1px solid var(--line); border-radius:12px; padding:16px; min-width:0; }
   .ihead { display:flex; justify-content:space-between; align-items:baseline; gap:10px; flex-wrap:wrap; }
   .iname { font-size:.9rem; font-weight:700; color:#e6e8eb; display:flex; align-items:center; }
   .iwhen { font-size:.72rem; color:#9ca3af; font-variant-numeric:tabular-nums; }
@@ -1726,7 +1736,7 @@ const CSS = `
   .ibrange { font-weight:400; opacity:.75; font-variant-numeric:tabular-nums; }
   .b-high { background:#2a1a1e; color:#f87171; border:1px solid #4a2630; }
   .b-low { background:#16212e; color:#60a5fa; border:1px solid #27405c; }
-  .b-mid { background:#1e222b; color:#9ca3af; border:1px solid #333a4a; }
+  .b-mid { background:var(--s2); color:#9ca3af; border:1px solid #333a4a; }
   .itag { font-size:.84rem; font-weight:600; color:#e6e8eb; }
   .ibrief { font-size:.78rem; color:#9ca3af; margin:6px 0 0; line-height:1.55; }
   .iup { color:#f87171; }
@@ -1736,30 +1746,30 @@ const CSS = `
   .iraw { font-size:.72rem; color:#9ca3af; margin:4px 0 0; font-variant-numeric:tabular-nums; }
 
   .modal-bg { position:fixed; inset:0; background:rgba(3,5,10,.72); display:flex; align-items:center; justify-content:center; padding:18px; z-index:50; }
-  .modal { background:#1a1e29; border:1px solid #2f3646; border-radius:16px; padding:24px; max-width:540px; width:100%; max-height:86vh; overflow-y:auto; position:relative; }
+  .modal { background:var(--s1); border:1px solid #2f3646; border-radius:16px; padding:24px; max-width:540px; width:100%; max-height:86vh; overflow-y:auto; position:relative; }
   .mx { position:absolute; top:13px; right:15px; background:none; border:none; color:#8b93a1; font-size:1.5rem; cursor:pointer; line-height:1; }
   .mx:hover { color:#e6e8eb; }
   .m-date { font-size:.76rem; color:#4ade80; font-variant-numeric:tabular-nums; margin-bottom:6px; }
   .m-title { font-size:1.15rem; font-weight:700; margin:0 26px 6px 0; line-height:1.35; }
   .m-sub { font-size:.74rem; color:#9ca3af; margin-bottom:14px; }
-  .m-row { display:flex; gap:18px; flex-wrap:wrap; margin-bottom:14px; padding-bottom:14px; border-bottom:1px solid #262c3a; }
-  .src-btn { display:inline-block; background:#212734; color:#e6e8eb; text-decoration:none; padding:8px 14px; border-radius:8px; font-size:.8rem; font-weight:600; border:1px solid #262c3a; margin-bottom:4px; }
+  .m-row { display:flex; gap:18px; flex-wrap:wrap; margin-bottom:14px; padding-bottom:14px; border-bottom:1px solid var(--line); }
+  .src-btn { display:inline-block; background:var(--s2); color:#e6e8eb; text-decoration:none; padding:8px 14px; border-radius:8px; font-size:.8rem; font-weight:600; border:1px solid var(--line); margin-bottom:4px; }
   .src-btn:hover { border-color:#4ade80; color:#4ade80; }
   .sec-h { font-size:.8rem; font-weight:700; color:#4ade80; margin:18px 0 8px; }
   .ai { background:#12351f; border:1px solid #1c4a2b; border-radius:10px; padding:13px 15px; font-size:.88rem; line-height:1.65; color:#d5f0e0; }
   .m-body { font-size:.9rem; line-height:1.75; color:#d3d8e0; margin:0; }
-  .newsline { background:#212734; border:1px solid #262c3a; border-radius:9px; padding:10px 12px; font-size:.83rem; line-height:1.5; display:flex; gap:9px; align-items:flex-start; margin-bottom:8px; }
+  .newsline { background:var(--s2); border:1px solid var(--line); border-radius:9px; padding:10px 12px; font-size:.83rem; line-height:1.5; display:flex; gap:9px; align-items:flex-start; margin-bottom:8px; }
   .glossary { list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:9px; }
-  .glossary li { background:#212734; border:1px solid #262c3a; border-radius:9px; padding:10px 12px; font-size:.83rem; line-height:1.55; color:#c4cad4; }
+  .glossary li { background:var(--s2); border:1px solid var(--line); border-radius:9px; padding:10px 12px; font-size:.83rem; line-height:1.55; color:#c4cad4; }
   .glossary b { color:#e6e8eb; display:block; margin-bottom:2px; }
 
 /* ── 종목 시세 카드 ───────────────────────────────── */
-.qcard { background:#161a24; border:1px solid #262c3a; border-radius:14px; padding:16px 16px 14px; margin:14px 0 4px; }
+.qcard { background:var(--s1); border:1px solid var(--line); border-radius:14px; padding:16px 16px 14px; margin:14px 0 4px; }
 .qhead { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:10px; }
 .qtk { font-size:1.02rem; font-weight:700; color:#e6e8eb; letter-spacing:.02em; }
 .qnm { font-size:.82rem; color:#8b93a1; margin-left:8px; }
 .qstate { flex:0 0 auto; font-size:.7rem; font-weight:700; padding:4px 9px; border-radius:999px;
-          background:#1f2430; color:#8b93a1; border:1px solid #2b3240; }
+          background:var(--s2); color:#8b93a1; border:1px solid #2b3240; }
 .qstate.on { background:#12351f; color:#4ade80; border-color:#1c4a2b; }
 .qprice { display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; }
 .qnow { font-size:1.9rem; font-weight:700; color:#e6e8eb; font-variant-numeric:tabular-nums; }
@@ -1778,10 +1788,10 @@ const CSS = `
 .w52-bar { position:relative; height:6px; margin-top:5px; border-radius:999px;
            background:linear-gradient(90deg,#1f3a4d,#2b3a55,#3a2b2b); }
 .w52-dot { position:absolute; top:50%; width:11px; height:11px; margin-left:-5.5px;
-           transform:translateY(-50%); border-radius:50%; background:#e6e8eb; border:2px solid #161a24; }
+           transform:translateY(-50%); border-radius:50%; background:#e6e8eb; border:2px solid var(--s1); }
 
 /* 브리핑 상태 상자 (없음 / 만드는 중 / 실패) */
-.segbox { background:#161a24; border:1px solid #262c3a; border-radius:12px; padding:14px; margin:4px 0 10px; }
+.segbox { background:var(--s1); border:1px solid var(--line); border-radius:12px; padding:14px; margin:4px 0 10px; }
 .segbox .search-btn { margin-top:4px; }
 .segnote.dim { color:#565e6b; }
 .qgrid .metric .sub { display:block; font-size:.66rem; color:#9ca3af; margin-top:2px; }
@@ -1799,7 +1809,7 @@ const CSS = `
 }
 
 /* ── 업종 패널 ─────────────────────────────────────── */
-.tpanel { background:#141821; border:1px solid #222836; border-radius:14px; padding:14px 14px 12px; }
+.tpanel { background:var(--sunk); border:1px solid #222836; border-radius:14px; padding:14px 14px 12px; }
 .tpanel .label { margin-top:0; }
 .tmkt { font-size:.66rem; font-weight:700; color:#565e6b; letter-spacing:.06em; margin:9px 0 5px; }
 .tchips { display:flex; flex-wrap:wrap; gap:6px; margin:0 0 8px; }
@@ -1809,7 +1819,7 @@ const CSS = `
 .tname { font-size:.92rem; font-weight:700; color:#e6e8eb; }
 .tdate { font-size:.68rem; color:#9ca3af; font-variant-numeric:tabular-nums; }
 .tindex { display:flex; align-items:baseline; gap:8px; margin-top:9px; padding:8px 10px;
-          background:#1a1f2b; border-radius:8px; }
+          background:var(--s2); border-radius:8px; }
 .tix-n { flex:1 1 auto; font-size:.74rem; color:#8b93a1; }
 .tix-v { font-size:.86rem; font-weight:600; color:#e6e8eb; font-variant-numeric:tabular-nums; }
 .tix-p { font-size:.76rem; font-weight:600; font-variant-numeric:tabular-nums; }
@@ -1822,7 +1832,7 @@ const CSS = `
 .trow { display:flex; align-items:baseline; gap:7px; width:100%; padding:7px 8px;
         background:transparent; border:1px solid transparent; border-radius:7px;
         cursor:pointer; font:inherit; text-align:left; }
-.trow:hover { background:#1a1f2b; border-color:#2b3240; }
+.trow:hover { background:var(--s1h); border-color:#2b3240; }
 .trow.on { background:#12351f; border-color:#1c4a2b; }
 .tr-tk { flex:0 0 46px; font-size:.72rem; font-weight:700; color:#8b93a1; }
 .tr-nm { flex:1 1 auto; font-size:.76rem; color:#e6e8eb; overflow:hidden;
