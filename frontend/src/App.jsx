@@ -1370,8 +1370,8 @@ function HomeStat({ name, big, band, sub, color }) {
   return (
     <div className="hcard">
       <div className="hname">{name}</div>
-      <div className="hbig" style={color ? { color } : undefined}>{big}</div>
-      {band && <div className="hband">{band}</div>}
+      <div className="hbig">{big}</div>
+      {band && <div className="hband" style={color ? { color } : undefined}>{band}</div>}
       {sub && <div className="hsub">{sub}</div>}
     </div>
   )
@@ -1506,8 +1506,8 @@ const CSS = `
      11-01 에 종목별 두 칼럼 때문에 .wrap 을 1120px 로 넓히면서 탭바도 같이
      넓어졌고, 그때 CSS 주석에 "탭바도 같이 넓어진다" 고만 써두고 뒀다.
      그래서 탭바 왼쪽선이 카드보다 140px 왼쪽에 있었다. */
-  .tabs { position:sticky; top:0; background:#0f1117; border-bottom:1px solid #262c3a; z-index:10; }
-  .tabs-in { max-width:840px; margin:0 auto; display:flex; gap:2px; padding-top:6px; }
+  .tabs { position:sticky; top:0; background:#0f1117; z-index:10; }
+  .tabs-in { max-width:840px; margin:0 auto; display:flex; gap:2px; padding-top:6px; border-bottom:1px solid #262c3a; }
   /* flex:1 을 뺀다. 넷이 1120px 을 나눠 가져서 탭 하나가 280px 인데 글자는
      70px 이었다 — 210px 이 빈 공간이었다. 이제 글자 폭만큼만 차지한다. */
   .tab { background:none; border:none; color:#8b93a1; font:inherit; font-size:.82rem; font-weight:600; padding:12px 14px; cursor:pointer; border-bottom:2px solid transparent; margin-bottom:-1px; white-space:nowrap; }
@@ -1541,7 +1541,9 @@ const CSS = `
   .hband { font-size:.78rem; font-weight:600; }
   .hsub { font-size:.72rem; color:#9ca3af; margin-top:5px; }
 
-  .hmore { display:grid; grid-template-columns:repeat(auto-fit,minmax(230px,1fr)); gap:11px; }
+  /* ⚠️ 230px 이면 840px 안에 3개가 들어가서 네 번째(환율)만 혼자 다음 줄에
+     남는다. 320px 으로 올리면 2×2 로 떨어진다. 좁은 화면에서는 1열이 된다. */
+  .hmore { display:grid; grid-template-columns:repeat(auto-fit,minmax(320px,1fr)); gap:11px; }
   .hmcard { background:#161b26; border:1px solid #262c3a; border-radius:12px; padding:14px 16px;
             text-align:left; font:inherit; color:inherit; cursor:pointer; }
   .hmcard:hover { border-color:#3a4257; background:#1b2130; }
