@@ -21,15 +21,12 @@ AI 는 쓰지 않는다. 지표가 **왜** 움직였는지는 우리 데이터�
 몇 달 연속 올랐나.
 """
 
-# ⚠️ `indicators` 테이블에 나라 컬럼이 없다. 지금은 SPEC 이 나라를 안다.
-#    수출·수입은 한국에만 있는 이름이라 충돌이 없지만, **한국은행 기준금리와
-#    한국 CPI 를 넣는 순간 'CPI'·'금리' 이름이 미국 것과 부딪힌다.**
-#    그때는 `country` 컬럼을 넣고 UNIQUE 를 (country, name, date) 로 바꿔야 한다
-#    (SQLite 는 UNIQUE 를 ALTER 로 못 고쳐서 테이블 재생성 마이그레이션이다).
+# 키가 (나라, 이름) 이다. 테이블에도 country 컬럼이 있고 UNIQUE 가
+# (country, name, date) 라서, 한국 CPI 를 넣어도 미국 것과 안 부딪힌다.
+# (2026-11-06 마이그레이션. 그전에는 SPEC 만 나라를 알고 있었다.)
 SPEC = {
-    "CPI": {
+    ("US", "CPI"): {
         "label": "물가 (CPI)",
-        "country": "US",
         "unit": "index",
         "decimals": 1,          # 화면에 보이는 상승률 자릿수
         "raw_decimals": 3,      # 지수 원값 자릿수
@@ -52,9 +49,8 @@ SPEC = {
             -1: "🧊 물가 오름세가 꺾였어요",
         },
     },
-    "금리": {
+    ("US", "금리"): {
         "label": "기준금리",
-        "country": "US",
         "unit": "percent",
         "decimals": 2,
         "tip": {
@@ -74,9 +70,8 @@ SPEC = {
             -1: "💸 대출 이자가 내리는 쪽이에요",
         },
     },
-    "실업률": {
+    ("US", "실업률"): {
         "label": "실업률",
-        "country": "US",
         "unit": "percent",
         "decimals": 1,
         "tip": {
@@ -96,9 +91,8 @@ SPEC = {
             -1: "🙌 일자리 사정이 나아지고 있어요",
         },
     },
-    "수출": {
+    ("KR", "수출"): {
         "label": "수출",
-        "country": "KR",
         "unit": "amount",
         "decimals": 1,
         "raw_decimals": 1,
@@ -126,9 +120,8 @@ SPEC = {
             -1: "📦 수출이 작년보다 줄고 있어요",
         },
     },
-    "수입": {
+    ("KR", "수입"): {
         "label": "수입",
-        "country": "KR",
         "unit": "amount",
         "decimals": 1,
         "raw_decimals": 1,
@@ -164,7 +157,8 @@ BAND_LOW, BAND_HIGH = 1 / 3, 2 / 3
 # 한국은 수출로 먹고 사는 나라라 수출·수입을 둔다.
 # 원/달러 환율은 여기 넣지 않는다 — 환율 탭이 장중 그래프·해설까지 이미 다 한다.
 # (아침에 종목별 탭이 생겨 시장·지표 탭의 주가 카드를 걷어낸 것과 같은 이유다.)
-ORDER = ["CPI", "금리", "실업률", "수출", "수입"]
+ORDER = [("US", "CPI"), ("US", "금리"), ("US", "실업률"),
+         ("KR", "수출"), ("KR", "수입")]
 
 
 def _month_label(date):
@@ -269,19 +263,21 @@ def _amount(value, unit, decimals):
 def build(conn):
     """화면이 그대로 그릴 수 있는 지표 목록."""
     rows = conn.execute(
-        "SELECT name, date, value, release_date FROM indicators ORDER BY date"
+        "SELECT country, name, date, value, release_date FROM indicators ORDER BY date"
     ).fetchall()
 
-    by_name = {}
+    by_key = {}
     for r in rows:
-        by_name.setdefault(r["name"], []).append((r["date"], r["value"], r["release_date"]))
+        by_key.setdefault((r["country"], r["name"]), []).append(
+            (r["date"], r["value"], r["release_date"]))
 
     out = []
-    for name in ORDER:
-        series = by_name.get(name)
+    for key in ORDER:
+        series = by_key.get(key)
         if not series:
             continue
-        spec = SPEC[name]
+        country, name = key
+        spec = SPEC[key]
         dec = spec["decimals"]
         pairs = [(d, v) for d, v, _ in series]
         date, value, release = series[-1]
@@ -323,7 +319,7 @@ def build(conn):
             "month": _month_label(date),
             "released": _release_label(release),
             # 계산한 숫자만 보여주면 틀렸을 때 알 수가 없다. 원값을 남긴다.
-            "country": spec["country"],
+            "country": country,
             "raw": round(value / spec.get("raw_div", 1), spec.get("raw_decimals", dec)),
             "raw_decimals": spec.get("raw_decimals", dec),
             "raw_unit": spec.get("raw_unit", ""),

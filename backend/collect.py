@@ -11,8 +11,13 @@ FRED_KEY = os.environ["FRED_API_KEY"]
 TICKERS = ["AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "TSLA", "META"]
 # 한국 수출·수입은 OECD 가 FRED 에 올리는 것을 쓴다. 한국은행 기준금리와
 # 한국 CPI 는 FRED 에서 끊겼다(2025-04) — 그 둘은 ECOS 로 받아야 한다.
-INDICATORS = {"CPI": "CPIAUCSL", "금리": "FEDFUNDS", "실업률": "UNRATE",
-              "수출": "XTEXVA01KRM667N", "수입": "XTIMVA01KRM667N"}
+INDICATORS = {
+    ("US", "CPI"): "CPIAUCSL",
+    ("US", "금리"): "FEDFUNDS",
+    ("US", "실업률"): "UNRATE",
+    ("KR", "수출"): "XTEXVA01KRM667N",
+    ("KR", "수입"): "XTIMVA01KRM667N",
+}
 
 conn = sqlite3.connect("econ.db")
 cur = conn.cursor()
@@ -52,7 +57,7 @@ conn.commit()  # 주가 먼저 저장
 
 # 경제지표 (시리즈별 3회 재시도)
 fred = Fred(api_key=FRED_KEY)
-for name, series_id in INDICATORS.items():
+for (country, name), series_id in INDICATORS.items():
     for attempt in range(3):
         try:
             series = fred.get_series(series_id, observation_start="2023-01-01")
@@ -73,13 +78,14 @@ for name, series_id in INDICATORS.items():
                 iso = str(date.date())
                 rel = released.get(iso)
                 cur.execute(
-                    "INSERT OR IGNORE INTO indicators (name, date, value, release_date) VALUES (?, ?, ?, ?)",
-                    (name, iso, float(value), rel))
+                    "INSERT OR IGNORE INTO indicators"
+                    " (country, name, date, value, release_date) VALUES (?, ?, ?, ?, ?)",
+                    (country, name, iso, float(value), rel))
                 if rel:  # 기존 행(release_date 없이 저장됐던 것)도 채워준다
                     cur.execute(
-                        "UPDATE indicators SET release_date=? "
-                        "WHERE name=? AND date=? AND (release_date IS NULL OR release_date='')",
-                        (rel, name, iso))
+                        "UPDATE indicators SET release_date=? WHERE country=? AND name=? "
+                        "AND date=? AND (release_date IS NULL OR release_date='')",
+                        (rel, country, name, iso))
             break
         except Exception as e:
             if attempt < 2:

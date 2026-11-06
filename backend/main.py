@@ -74,7 +74,10 @@ def pct_change(conn, ticker, start_date, days, window=7):
 @app.get("/api/analysis")
 def analysis():
     conn = get_db()
-    indicators = conn.execute("SELECT DISTINCT name FROM indicators").fetchall()
+    # 미국 지표 발표일 → 미국 주가 반응이다. 한국 수출·수입 발표일을 넣으면
+    # 의미 없는 통계가 된다 (11-03 에 수출·수입을 넣은 뒤로 섞여 있었다).
+    indicators = conn.execute(
+        "SELECT DISTINCT name FROM indicators WHERE country='US'").fetchall()
     tickers = [r["ticker"] for r in conn.execute("SELECT DISTINCT ticker FROM prices").fetchall()]
     result = []
     for ind in indicators:
@@ -83,8 +86,8 @@ def analysis():
         # 예: 2026-09 CPI 는 2026-10-14 발표 → 10/14 기준으로 봐야 '발표 반응'이다.
         releases = conn.execute(
             "SELECT COALESCE(release_date, date) d FROM indicators "
-            "WHERE name=? AND release_date IS NOT NULL AND release_date<>'' ORDER BY d ASC",
-            (name,)).fetchall()
+            "WHERE country='US' AND name=? AND release_date IS NOT NULL "
+            "AND release_date<>'' ORDER BY d ASC", (name,)).fetchall()
         dates = [r["d"] for r in releases]
         per_ticker = []
         for ticker in tickers:

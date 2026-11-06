@@ -28,6 +28,7 @@ import sys
 
 from fredapi import Fred
 
+COUNTRY = "KR"
 SERIES = {"수출": "XTEXVA01KRM667N", "수입": "XTIMVA01KRM667N"}
 START = "2023-01-01"            # 미국 지표와 같은 시작점
 
@@ -68,17 +69,18 @@ def main(db="econ.db"):
                 continue
             iso = str(date.date())
             cur.execute(
-                "INSERT OR IGNORE INTO indicators (name, date, value, release_date)"
-                " VALUES (?, ?, ?, ?)", (name, iso, float(value), released.get(iso)))
+                "INSERT OR IGNORE INTO indicators"
+                " (country, name, date, value, release_date) VALUES (?, ?, ?, ?, ?)",
+                (COUNTRY, name, iso, float(value), released.get(iso)))
             added += cur.rowcount
         conn.commit()
 
         n, lo, hi = cur.execute(
-            "SELECT COUNT(*), MIN(date), MAX(date) FROM indicators WHERE name=?",
-            (name,)).fetchone()
+            "SELECT COUNT(*), MIN(date), MAX(date) FROM indicators"
+            " WHERE country=? AND name=?", (COUNTRY, name)).fetchone()
         last = cur.execute(
-            "SELECT value, release_date FROM indicators WHERE name=? ORDER BY date DESC LIMIT 1",
-            (name,)).fetchone()
+            "SELECT value, release_date FROM indicators WHERE country=? AND name=?"
+            " ORDER BY date DESC LIMIT 1", (COUNTRY, name)).fetchone()
         print(f"{name}: 새로 {added}행 · 보유 {n}행 {lo}~{hi} · "
               f"마지막 {last[0] / 1e8:,.1f}억 달러 ({last[1] or '발표일 없음'})")
 
