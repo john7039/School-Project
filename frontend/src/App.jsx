@@ -223,8 +223,7 @@ function ArticlesTab() {
     return () => clearTimeout(t)
   }, [pick])
 
-  const today = daily[0]
-  const past = daily.slice(1)
+  const past = daily.slice(1)   // [0] 은 오늘 것 — 홈 화면이 맡는다
 
   const run = (term) => {
     const word = (term ?? q).trim()
@@ -252,15 +251,9 @@ function ArticlesTab() {
 
   return (
     <div className="panel">
-      <p className="lead">📰 <b>경제를 몰라도 읽히는 오늘의 뉴스.</b> AI가 기사를 골라 쉽게 풀어주고, 어느 기업에 어떤 영향인지까지 알려줘요.</p>
+      <p className="lead">📰 <b>단어 하나로 찾아보는 기사.</b> AI가 그 자리에서 골라 쉽게 풀어주고, 어느 기업에 어떤 영향인지까지 알려줘요. 오늘의 기사는 홈에 있습니다.</p>
 
-      {/* ① 기본값 — 오늘의 추천 */}
-      {today && <>
-        <div className="label">오늘의 추천</div>
-        <ArticleCard a={today} badge="오늘"
-          dateText={`${today.date} (${dowOf(today.date)})`}
-          onClick={() => setSel(today)} />
-      </>}
+      {/* 오늘의 추천은 홈 화면이 맡는다. 여기 두면 같은 카드가 두 군데 뜬다. */}
       {daily.length === 0 && <p className="lead">아직 분석된 기사가 없습니다.</p>}
 
       {/* ② 검색 */}
@@ -1365,23 +1358,131 @@ function FxTab() {
   )
 }
 
+// 메인 화면. 접속하면 탭 네 개가 먼저 보이던 것을 바꾼다 — 화면에서 가장
+// 큰 요소가 내용이 아니라 네비게이션이어서, 뭘 하는 사이트인지 알려면 탭을
+// 하나 골라 들어가야 했다.
+//
+// ⚠️ 요약 화면은 자칫 **네 탭의 열화판**이 된다. 이 프로젝트에서 중복은 이미
+//    두 번 걷어냈다(11-03 주가 카드, 11-05 한·미 영향 블록). 같은 기준으로
+//    여기는 '오늘' 만 둔다 — 지난 기사·그래프·검색은 탭이 맡고, 기사 탭에서는
+//    '오늘의 추천' 을 뺐다. 역할이 갈려야 중복이 아니다.
+function HomeStat({ name, big, band, sub, color }) {
+  return (
+    <div className="hcard">
+      <div className="hname">{name}</div>
+      <div className="hbig" style={color ? { color } : undefined}>{big}</div>
+      {band && <div className="hband">{band}</div>}
+      {sub && <div className="hsub">{sub}</div>}
+    </div>
+  )
+}
+
+function HomeTab({ onGo }) {
+  const [daily, setDaily] = useState([])
+  const [items, setItems] = useState([])
+  const [fx, setFx] = useState(null)
+  const [sel, setSel] = useState(null)
+
+  useEffect(() => {
+    fetch(`${API}/api/daily`).then(r => r.json())
+      .then(d => setDaily(Array.isArray(d) ? d : [])).catch(() => {})
+    fetch(`${API}/api/indicators`).then(r => r.json())
+      .then(d => setItems(Array.isArray(d) ? d : [])).catch(() => {})
+  }, [])
+
+  // 환율만 다시 받는다. 이 화면에서 유일하게 '지금' 인 값이다 — 지표는 한 달에
+  // 한 번, 기사는 하루 한 번 바뀐다. 실패해도 직전 값을 지우지 않는다.
+  useEffect(() => {
+    let alive = true
+    const load = () => fetch(`${API}/api/fx`).then(r => r.json())
+      .then(d => { if (alive) setFx(d) }).catch(() => {})
+    load()
+    const id = setInterval(load, 60000)
+    return () => { alive = false; clearInterval(id) }
+  }, [])
+
+  const today = daily[0]
+  const usd = ((fx || {}).live || {}).USDKRW
+  const LV = { low: '🔵 낮은 쪽', mid: '⚪ 중간', high: '🔴 높은 쪽' }
+  const stats = [['CPI', '물가'], ['금리', '기준금리'], ['실업률', '실업률']]
+    .map(([n, label]) => [label, items.find(x => x.country === 'US' && x.name === n)])
+    .filter(([, d]) => d)
+
+  const MORE = [
+    ['articles', '📰 지난 기사', '단어로 검색하면 AI 가 그 자리에서 골라 분석해요' +
+      (daily.length > 1 ? `. 지난 분석 ${daily.length - 1}건` : '')],
+    ['stocks', '📊 종목별', '이름·업종으로 찾기. 한국 주식과 코스피까지'],
+    ['market', '📈 경제지표', '3년 추이 그래프와 지표 설명. 한국 수출입도'],
+    ['fx', '💱 환율', '장중 움직임 그래프와 AI 양면 분석'],
+  ]
+
+  return (
+    <div className="panel">
+      {sel && <Modal onClose={() => setSel(null)}><ArticleBody a={sel} /></Modal>}
+
+      <div className="label">오늘의 기사</div>
+      {today
+        ? <ArticleCard a={today} badge="오늘"
+            dateText={`${today.date} (${dowOf(today.date)})`}
+            onClick={() => setSel(today)} />
+        : <p className="lead">아직 분석된 기사가 없습니다.</p>}
+
+      <div className="label">지금 경제</div>
+      <div className="hgrid">
+        {stats.map(([label, d]) => (
+          <HomeStat key={label} name={label}
+            big={(d.unit === 'index' && d.headline.value > 0 ? '+' : '') +
+                 d.headline.value.toFixed(d.headline.decimals) + d.headline.unit}
+            band={LV[d.band.level]}
+            sub={d.unit === 'index' ? '작년 같은 달 대비' : d.month} />
+        ))}
+        {usd && usd.rate != null && (
+          <HomeStat name="원/달러"
+            big={usd.rate.toLocaleString('ko-KR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            band={`${usd.chg >= 0 ? '▲' : '▼'} ${Math.abs(usd.chg).toFixed(2)}원 (${usd.pct >= 0 ? '+' : ''}${usd.pct.toFixed(2)}%)`}
+            color={dirColor(usd.chg)}
+            sub={`${(usd.market_time || '').slice(11, 16)} 기준 · 5분마다 갱신`} />
+        )}
+      </div>
+      {!stats.length && !usd && <p className="lead">지표를 불러오는 중…</p>}
+
+      <div className="label">더 보기</div>
+      <div className="hmore">
+        {MORE.map(([key, name, desc]) => (
+          <button key={key} className="hmcard" onClick={() => onGo(key)}>
+            <div className="hmname">{name}</div>
+            <div className="hmdesc">{desc}</div>
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 function App() {
-  const [tab, setTab] = useState('articles')
+  const [tab, setTab] = useState('home')
+  const today = new Date().toLocaleDateString('ko-KR',
+    { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' })
   return (
     <div className="wrap">
       <style>{CSS}</style>
       <header>
-        <h1>📈 경제 한 조각</h1>
+        <div className="htop">
+          <h1>📈 경제 한 조각</h1>
+          <span className="hdate">{today}</span>
+        </div>
         <p>경제 초보를 위한 자동 수집·AI 분석 (예측 아님 · 학습·참고용)</p>
       </header>
       <div className="tabs">
         <div className="tabs-in">
-        <button className={`tab${tab === 'articles' ? ' active' : ''}`} onClick={() => setTab('articles')}>📰 AI 추천 기사</button>
+        <button className={`tab${tab === 'home' ? ' active' : ''}`} onClick={() => setTab('home')}>🏠 홈</button>
+        <button className={`tab${tab === 'articles' ? ' active' : ''}`} onClick={() => setTab('articles')}>📰 지난 기사</button>
         <button className={`tab${tab === 'stocks' ? ' active' : ''}`} onClick={() => setTab('stocks')}>📊 종목별</button>
         <button className={`tab${tab === 'market' ? ' active' : ''}`} onClick={() => setTab('market')}>📈 경제지표</button>
         <button className={`tab${tab === 'fx' ? ' active' : ''}`} onClick={() => setTab('fx')}>💱 환율</button>
         </div>
       </div>
+      {tab === 'home' && <HomeTab onGo={setTab} />}
       {tab === 'articles' && <ArticlesTab />}
       {tab === 'stocks' && <StocksTab />}
       {tab === 'market' && <MarketTab />}
@@ -1427,6 +1528,26 @@ const CSS = `
   .panel { padding-top:16px; }
   .lead { color:#8b93a1; font-size:.84rem; margin:0 0 14px; line-height:1.5; }
   .label { font-size:.72rem; text-transform:uppercase; letter-spacing:.08em; color:#9ca3af; font-weight:700; margin:18px 0 10px; }
+
+  /* ── 홈 화면 ── */
+  .htop { display:flex; align-items:baseline; justify-content:space-between; gap:16px; flex-wrap:wrap; }
+  .hdate { color:#9ca3af; font-size:.84rem; font-variant-numeric:tabular-nums; }
+  /* 카드가 배경에서 안 떴다 — #0f1117 대 #161a24 가 1.08:1 이다.
+     #1b2130 으로 올리면 1.17:1. 아직 낮지만 테두리(#2f3850)가 받쳐준다. */
+  .hgrid { display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:12px; margin-bottom:4px; }
+  .hcard { background:#1b2130; border:1px solid #2f3850; border-radius:14px; padding:16px 17px; }
+  .hname { font-size:.78rem; color:#9ca3af; font-weight:600; }
+  .hbig { font-size:1.6rem; font-weight:700; margin:7px 0 5px; font-variant-numeric:tabular-nums; letter-spacing:-.02em; }
+  .hband { font-size:.78rem; font-weight:600; }
+  .hsub { font-size:.72rem; color:#9ca3af; margin-top:5px; }
+
+  .hmore { display:grid; grid-template-columns:repeat(auto-fit,minmax(230px,1fr)); gap:11px; }
+  .hmcard { background:#161b26; border:1px solid #262c3a; border-radius:12px; padding:14px 16px;
+            text-align:left; font:inherit; color:inherit; cursor:pointer; }
+  .hmcard:hover { border-color:#3a4257; background:#1b2130; }
+  .hmcard:focus-visible { outline:2px solid #4ade80; outline-offset:2px; }
+  .hmname { font-size:.88rem; font-weight:700; margin-bottom:4px; }
+  .hmdesc { font-size:.76rem; color:#9ca3af; line-height:1.55; }
   .up { color:#4ade80; } .down { color:#f87171; }
 
   .chips { display:flex; gap:8px; overflow-x:auto; padding-bottom:6px; }
