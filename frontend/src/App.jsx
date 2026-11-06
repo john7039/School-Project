@@ -1010,10 +1010,6 @@ function IndCard({ d }) {
         <span className="iname">{d.label}</span>
         <span className="iwhen">{d.month}{d.released && ` · ${d.released}`}</span>
       </div>
-      {/* ⓘ 안에 넣어뒀더니 눌러야 보여서 사실상 안 읽혔다. CPI 가 뭔지 모르면
-          숫자도 뜻이 없으므로 이름 바로 밑에 꺼내 둔다. '영향' 은 아래
-          "오르면 보통" 칩이 같은 일을 해서 뺐다. */}
-      {d.tip && <p className="iwhat"><b>{d.tip.term}</b> — {d.tip.what}</p>}
       {(d.band || d.tag) && (
         <div className="ihead2">
           <Band b={d.band} dec={dec} unit={unit} />
@@ -1596,8 +1592,6 @@ const CSS = `
   .idelta { display:inline-flex; align-items:center; gap:4px; font-weight:600; }
   .ipre { color:#9ca3af; font-weight:400; }
   .clabel { font-size:.8rem; font-weight:700; color:#c9ced8; margin:18px 0 9px; }
-  .iwhat { font-size:.78rem; color:#9ca3af; line-height:1.6; margin:7px 0 0; }
-  .iwhat b { color:#c9ced8; font-weight:600; }
   .ihead2 { display:flex; flex-wrap:wrap; align-items:center; gap:7px 10px; margin-top:10px; }
   .ibadge { display:inline-flex; align-items:center; gap:5px; font-size:.72rem; font-weight:700;
             padding:3px 9px; border-radius:999px; white-space:nowrap; }
