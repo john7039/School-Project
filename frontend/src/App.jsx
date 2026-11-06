@@ -1375,10 +1375,12 @@ function App() {
         <p>경제 초보를 위한 자동 수집·AI 분석 (예측 아님 · 학습·참고용)</p>
       </header>
       <div className="tabs">
+        <div className="tabs-in">
         <button className={`tab${tab === 'articles' ? ' active' : ''}`} onClick={() => setTab('articles')}>📰 AI 추천 기사</button>
         <button className={`tab${tab === 'stocks' ? ' active' : ''}`} onClick={() => setTab('stocks')}>📊 종목별</button>
         <button className={`tab${tab === 'market' ? ' active' : ''}`} onClick={() => setTab('market')}>📈 경제지표</button>
         <button className={`tab${tab === 'fx' ? ' active' : ''}`} onClick={() => setTab('fx')}>💱 환율</button>
+        </div>
       </div>
       {tab === 'articles' && <ArticlesTab />}
       {tab === 'stocks' && <StocksTab />}
@@ -1399,15 +1401,29 @@ const CSS = `
   header { padding:24px 0 10px; }
   header h1 { margin:0; font-size:1.4rem; }
   header p { margin:5px 0 0; color:#8b93a1; font-size:.85rem; }
-  .tabs { position:sticky; top:0; background:#0f1117; display:flex; gap:4px; border-bottom:1px solid #262c3a; z-index:10; padding-top:4px; }
-  .tab { flex:1; background:none; border:none; color:#8b93a1; font:inherit; font-size:.82rem; font-weight:600; padding:13px 6px; cursor:pointer; border-bottom:2px solid transparent; border-radius:8px 8px 0 0; margin-bottom:-1px; white-space:nowrap; }
+  /* 스티키 배경과 밑줄은 폭 전체, 탭 버튼은 .panel(840px)과 같은 칸에 둔다.
+     11-01 에 종목별 두 칼럼 때문에 .wrap 을 1120px 로 넓히면서 탭바도 같이
+     넓어졌고, 그때 CSS 주석에 "탭바도 같이 넓어진다" 고만 써두고 뒀다.
+     그래서 탭바 왼쪽선이 카드보다 140px 왼쪽에 있었다. */
+  .tabs { position:sticky; top:0; background:#0f1117; border-bottom:1px solid #262c3a; z-index:10; }
+  .tabs-in { max-width:840px; margin:0 auto; display:flex; gap:2px; padding-top:6px; }
+  /* flex:1 을 뺀다. 넷이 1120px 을 나눠 가져서 탭 하나가 280px 인데 글자는
+     70px 이었다 — 210px 이 빈 공간이었다. 이제 글자 폭만큼만 차지한다. */
+  .tab { background:none; border:none; color:#8b93a1; font:inherit; font-size:.82rem; font-weight:600; padding:12px 14px; cursor:pointer; border-bottom:2px solid transparent; margin-bottom:-1px; white-space:nowrap; }
   /* 클릭한 뒤 브라우저 기본 포커스 테두리가 남으면 네모 박스처럼 보인다.
      키보드로 온 경우(:focus-visible)에만 테두리를 남긴다. */
   .tab:focus { outline:none; }
-  .tab:focus-visible { outline:2px solid #4ade80; outline-offset:-3px; }
-  @media (max-width:520px) { .tab { font-size:.7rem; padding:11px 2px; } }
+  .tab:focus-visible { outline:2px solid #4ade80; outline-offset:2px; border-radius:4px; }
+  /* 글자 폭만큼만 차지하게 바꿨더니 좁은 화면에서 넘칠 수 있다. 재보니
+     320px 폭에서 29px 모자란다(네 탭 313px + 좌우 여백 36px). 줄바꿈은
+     탭바가 두 줄이 돼서 이상하니 가로로 밀리게 둔다. */
+  @media (max-width:520px) {
+    .tab { font-size:.7rem; padding:11px 8px; }
+    .tabs-in { overflow-x:auto; scrollbar-width:none; }
+    .tabs-in::-webkit-scrollbar { display:none; }
+  }
   .tab:hover { color:#e6e8eb; }
-  .tab.active { color:#4ade80; border-bottom-color:#4ade80; background:#151a26; }
+  .tab.active { color:#4ade80; border-bottom-color:#4ade80; }
   .panel { padding-top:16px; }
   .lead { color:#8b93a1; font-size:.84rem; margin:0 0 14px; line-height:1.5; }
   .label { font-size:.72rem; text-transform:uppercase; letter-spacing:.08em; color:#9ca3af; font-weight:700; margin:18px 0 10px; }
