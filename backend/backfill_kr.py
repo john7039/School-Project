@@ -1,7 +1,9 @@
-"""한국 수출·수입을 처음 한 번 적재한다.
+"""한국 지표를 FRED 에서 처음 한 번 적재한다 (수출·수입·콜금리).
 
-`collect.py` 의 INDICATORS 에 두 시리즈를 넣었으니 내일 07:00 부터는 자동으로
-들어온다. 다만 그때까지 화면의 한국 칸이 비어 있게 되므로 한 번만 손으로 채운다.
+`collect.py` 의 INDICATORS 에 들어 있으니 내일 07:00 부터는 자동으로 들어온다.
+다만 그때까지 화면의 한국 칸이 비어 있게 되므로 한 번만 손으로 채운다.
+
+한국 CPI 는 여기 없다 — FRED 에서 끊겨서 OECD 직접이다 (`collect_oecd.py`).
 
 `collect.py` 를 그냥 돌려도 되지만 그러면 주가·뉴스까지 다 다시 받는다.
 지표 두 개만 필요해서 그 부분만 떼어 왔다.
@@ -29,7 +31,13 @@ import sys
 from fredapi import Fred
 
 COUNTRY = "KR"
-SERIES = {"수출": "XTEXVA01KRM667N", "수입": "XTIMVA01KRM667N"}
+# ⚠️ collect.py 의 INDICATORS 와 같은 값이다. 한 곳이 바뀌면 다른 곳도 바꿔야 한다.
+#    (이 파일은 처음 한 번 쓰는 도구라 공유 모듈까지 만들지는 않았다.)
+SERIES = {
+    "수출": "XTEXVA01KRM667N",
+    "수입": "XTIMVA01KRM667N",
+    "금리": "IRSTCI01KRM156N",     # 콜금리. 한국은행 기준금리가 아니다
+}
 START = "2023-01-01"            # 미국 지표와 같은 시작점
 
 
@@ -81,8 +89,10 @@ def main(db="econ.db"):
         last = cur.execute(
             "SELECT value, release_date FROM indicators WHERE country=? AND name=?"
             " ORDER BY date DESC LIMIT 1", (COUNTRY, name)).fetchone()
-        print(f"{name}: 새로 {added}행 · 보유 {n}행 {lo}~{hi} · "
-              f"마지막 {last[0] / 1e8:,.1f}억 달러 ({last[1] or '발표일 없음'})")
+        # 수출·수입은 달러 금액, 금리는 % 라 단위가 다르다
+        tail = (f"{last[0]:,.3f}%" if name == "금리" else f"{last[0] / 1e8:,.1f}억 달러")
+        print(f"{name}: 새로 {added}행 · 보유 {n}행 {lo[:7]}~{hi[:7]} · "
+              f"마지막 {tail} ({last[1] or '발표일 없음'})")
 
     conn.close()
 

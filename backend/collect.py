@@ -9,12 +9,18 @@ load_dotenv()
 FRED_KEY = os.environ["FRED_API_KEY"]
 
 TICKERS = ["AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "TSLA", "META"]
-# 한국 수출·수입은 OECD 가 FRED 에 올리는 것을 쓴다. 한국은행 기준금리와
-# 한국 CPI 는 FRED 에서 끊겼다(2025-04) — 그 둘은 ECOS 로 받아야 한다.
+# ⚠️ 한국 CPI 는 여기 없다. FRED 의 한국 물가 시리즈는 전부 멈췄는데 ID 는
+#    살아 있어서, 받아오면 200 으로 성공하고 몇 년 전 값을 준다.
+#    OECD 에서 직접 받는다 → collect_oecd.py
+#
+# 한국 금리는 콜금리(은행 간 하루 금리)다. 한국은행 기준금리 그 자체는 ECOS
+# 뿐인데, 비교 대상인 미국 FEDFUNDS 도 FOMC 목표가 아니라 실제 거래된 금리의
+# 월평균이라 **오히려 이 쌍이 더 일관된다.** 화면에는 '콜금리' 라고 쓴다.
 INDICATORS = {
     ("US", "CPI"): "CPIAUCSL",
     ("US", "금리"): "FEDFUNDS",
     ("US", "실업률"): "UNRATE",
+    ("KR", "금리"): "IRSTCI01KRM156N",
     ("KR", "수출"): "XTEXVA01KRM667N",
     ("KR", "수입"): "XTIMVA01KRM667N",
 }
@@ -96,4 +102,13 @@ for (country, name), series_id in INDICATORS.items():
 
 conn.commit()
 conn.close()
+
+# OECD 에서 직접 받는 것(한국 CPI)은 따로 돈다. 여기서 실패해도 위의 FRED
+# 수집은 이미 저장됐으므로, 한쪽이 막혀도 나머지는 남는다.
+try:
+    import collect_oecd
+    collect_oecd.main("econ.db")
+except Exception as e:
+    print(f"OECD 수집 실패: {e.__class__.__name__} (건너뜀)")
+
 print("수집 완료")
