@@ -806,6 +806,94 @@ function StocksTab() {
 //
 // 숫자 가공은 전부 백엔드(indicators.py)에 있다. 단위 규칙 — 지수는 비율(%),
 // 금리·실업률은 차이(%p) — 을 화면에 흩어두면 또 틀린다.
+// 한·미 금리차. AxisChart 를 뜯지 않고 따로 만든다 — 지금 환율·종목·경제지표
+// 세 탭이 그것을 쓰고 있어서, 선 두 개를 그리게 고치면 셋이 다 걸린다.
+//
+// ⚠️ 설계할 때는 "역전 구간을 색칠한다" 였는데, 데이터를 보니 45개월 전부가
+//    역전이었다(미국이 100% 높다). 전부 칠하면 아무 말도 안 한다.
+//    두 선 사이를 띠로 채우면 **띠 두께가 곧 금리차**가 되고, 좁아지는 것이
+//    보인다. 2024-03 에 1.86%p 였던 것이 지금 0.71%p 다.
+function DiffChart({ pts, fmt, label }) {
+  if (!pts || pts.length < 2) return null
+  const W = 600, H = 172
+  const padL = 8, padR = 104, padT = 14, padB = 26
+
+  const vals = pts.flatMap(p => [p.a, p.b])
+  let lo = Math.min(...vals), hi = Math.max(...vals)
+  const room = (hi - lo) * 0.14 || 0.5
+  lo -= room; hi += room * 1.3
+  const span = hi - lo || 1
+
+  const px = i => padL + (i / (pts.length - 1)) * (W - padL - padR)
+  const py = v => padT + (1 - (v - lo) / span) * (H - padT - padB)
+  const line = k => pts.map((p, i) => `${px(i).toFixed(1)},${py(p[k]).toFixed(1)}`).join(' ')
+
+  // 위쪽 선을 따라가고 아래쪽 선을 거꾸로 돌아온다. 두 선이 교차하면 다각형이
+  // 스스로 접히는데, 그 모양이 곧 "띠가 0 이 됐다가 반대로 열린다" 라 맞게 보인다.
+  const band = line('a') + ' ' +
+    pts.map((p, i) => `${px(pts.length - 1 - i).toFixed(1)},${py(pts[pts.length - 1 - i].b).toFixed(1)}`).join(' ')
+
+  const last = pts.length - 1
+  const xticks = pts.reduce((acc, p, i) =>
+    (p.t.endsWith('.01') || p.t.endsWith('.07')) ? [...acc, i] : acc, [])
+
+  return (
+    <svg className="daychart" viewBox={`0 0 ${W} ${H}`} role="img" aria-label={label}>
+      <polygon points={band} fill="#8b93a1" opacity="0.16" />
+      <polyline points={line('a')} fill="none" stroke="#fbbf24" strokeWidth="2"
+        vectorEffect="non-scaling-stroke" strokeLinejoin="round" strokeLinecap="round" />
+      <polyline points={line('b')} fill="none" stroke="#60a5fa" strokeWidth="2"
+        vectorEffect="non-scaling-stroke" strokeLinejoin="round" strokeLinecap="round" />
+      {[['a', '#fbbf24', '미국'], ['b', '#60a5fa', '한국']].map(([k, c, nm]) => (
+        <g key={k}>
+          <circle cx={px(last)} cy={py(pts[last][k])} r="4" fill={c}
+            stroke="#161a24" strokeWidth="1.5" />
+          <text x={W - padR + 7} y={py(pts[last][k]) + 4} className="axl" fill={c}>
+            {nm} {fmt(pts[last][k])}
+          </text>
+        </g>
+      ))}
+      {xticks.map((ix, i) => (
+        <text key={ix} x={px(ix)} y={H - 8} className="axl"
+          textAnchor={i === 0 ? 'start' : 'middle'}>{pts[ix].t}</text>
+      ))}
+    </svg>
+  )
+}
+
+// 금리차는 계산이다. 왜 좁아지는지는 우리 데이터에 없어서 말하지 않는다.
+function RateGap({ items }) {
+  const us = items.find(x => x.country === 'US' && x.name === '금리')
+  const kr = items.find(x => x.country === 'KR' && x.name === '금리')
+  if (!us || !kr) return null
+  const ku = new Map(kr.chart.points.map(p => [p.t, p.rate]))
+  const pts = us.chart.points.filter(p => ku.has(p.t))
+    .map(p => ({ t: p.t, a: p.rate, b: ku.get(p.t) }))
+  if (pts.length < 2) return null
+
+  const gap = pts.map(p => p.a - p.b)
+  const now = gap[gap.length - 1]
+  const wi = gap.indexOf(Math.max(...gap))
+  const fmt = v => `${v.toFixed(2)}%`
+
+  return (
+    <div className="chartbox">
+      <div className="clabel">🌐 한·미 금리차</div>
+      <p className="chartcap">
+        미국 실효 연방기금금리와 한국 콜금리. 둘 다 은행끼리 하루 빌릴 때의 값이라
+        같은 종류예요.
+      </p>
+      <DiffChart pts={pts} fmt={fmt}
+        label={`한국과 미국의 금리 ${pts[0].t}부터 ${pts[pts.length - 1].t}까지. 지금 차이 ${now.toFixed(2)}%p`} />
+      <p className="dayaxis">x축: 월 · y축: 금리(%) · 띠: 두 나라 금리차</p>
+      <p className="inote">
+        지금 <b>{now.toFixed(2)}%p</b> 미국이 높습니다. {pts.length}개월 내내 그랬고,
+        가장 벌어졌던 때는 {pts[wi].t.replace('.', '년 ')}월의 {gap[wi].toFixed(2)}%p 입니다.
+      </p>
+    </div>
+  )
+}
+
 function MarketTab() {
   const [items, setItems] = useState([])
   const [failed, setFailed] = useState(false)
@@ -842,7 +930,10 @@ function MarketTab() {
         금리가 낮은 게 좋은지는 대출자냐 예금자냐에 따라 다르고, 실업률도 너무 낮으면
         임금이 올라 물가를 밀어올립니다.
       </p>
-      <p className="chartcap">미국 FRED 자료 · 발표될 때마다 갱신됩니다.</p>
+      <RateGap items={items} />
+      <p className="chartcap">
+        미국 FRED · 한국 OECD·FRED 자료 · 발표될 때마다 갱신됩니다.
+      </p>
     </div>
   )
 }
