@@ -1398,7 +1398,7 @@ const CSS = `
    누를 때 레이아웃이 튄다. 그래서 틀은 늘 1120px, 내용만 탭별로 정한다. */
 .panel { max-width:840px; margin:0 auto; }
 .panel.wide { max-width:none; }
-  header { padding:24px 0 10px; }
+  header { max-width:840px; margin:0 auto; padding:24px 0 10px; }
   header h1 { margin:0; font-size:1.4rem; }
   header p { margin:5px 0 0; color:#8b93a1; font-size:.85rem; }
   /* 스티키 배경과 밑줄은 폭 전체, 탭 버튼은 .panel(840px)과 같은 칸에 둔다.
@@ -1413,7 +1413,7 @@ const CSS = `
   /* 클릭한 뒤 브라우저 기본 포커스 테두리가 남으면 네모 박스처럼 보인다.
      키보드로 온 경우(:focus-visible)에만 테두리를 남긴다. */
   .tab:focus { outline:none; }
-  .tab:focus-visible { outline:2px solid #4ade80; outline-offset:2px; border-radius:4px; }
+  .tab:focus-visible { outline:none; color:#e6e8eb; box-shadow:inset 0 -3px 0 #4ade80; }
   /* 글자 폭만큼만 차지하게 바꿨더니 좁은 화면에서 넘칠 수 있다. 재보니
      320px 폭에서 29px 모자란다(네 탭 313px + 좌우 여백 36px). 줄바꿈은
      탭바가 두 줄이 돼서 이상하니 가로로 밀리게 둔다. */
