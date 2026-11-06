@@ -1464,7 +1464,7 @@ function App() {
   const today = new Date().toLocaleDateString('ko-KR',
     { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' })
   return (
-    <div className="wrap">
+    <div className={`wrap${tab === 'stocks' ? ' w' : ''}`}>
       <style>{CSS}</style>
       <header>
         <div className="htop">
@@ -1505,22 +1505,25 @@ const CSS = `
     --line:#2f3850;   /* 테두리.              카드대비 1.31:1 */
   }
   body { background:#0f1117; color:#e6e8eb; font-family:system-ui,"Apple SD Gothic Neo",sans-serif; margin:0; }
-  .wrap { max-width:1120px; margin:0 auto; padding:0 18px 60px; }
+  /* 기본은 카드 폭(840). 종목별만 두 칼럼이라 넓어진다 — 그때는 헤더·탭도
+     같이 넓어져야 왼쪽선이 맞는다. 탭을 옮기면 머리말이 140px 움직이는데,
+     한 화면 안에서 어긋나 보이는 것보다는 낫다고 봤다. */
+  .wrap { max-width:840px; margin:0 auto; padding:0 18px 60px; }
+  .wrap.w { max-width:1120px; }
 /* 종목별 탭만 두 칼럼이라 넓다. 나머지 탭은 840px 그대로 보이게 묶어둔다 —
    .wrap 을 넓히면 헤더·탭바도 같이 넓어지는데, 탭마다 폭이 바뀌면 탭을
    누를 때 레이아웃이 튄다. 그래서 틀은 늘 1120px, 내용만 탭별로 정한다. */
 .panel { max-width:840px; margin:0 auto; }
 .panel.wide { max-width:none; }
-  header { max-width:840px; margin:0 auto; padding:24px 0 10px; }
+  header { padding:24px 0 10px; }
   header h1 { margin:0; font-size:1.4rem; }
   header p { margin:5px 0 0; color:#8b93a1; font-size:.85rem; }
-  /* 스티키 배경과 밑줄은 폭 전체, 탭 버튼은 .panel(840px)과 같은 칸에 둔다.
+  /* 폭은 .wrap 이 정한다 — 여기서 따로 들지 않는다.
      11-01 에 종목별 두 칼럼 때문에 .wrap 을 1120px 로 넓히면서 탭바도 같이
-     넓어졌고, 그때 CSS 주석에 "탭바도 같이 넓어진다" 고만 써두고 뒀다.
-     그래서 탭바 왼쪽선이 카드보다 140px 왼쪽에 있었다. */
+     넓어졌고, 그때 CSS 주석에 "탭바도 같이 넓어진다" 고만 써두고 뒀다. */
   .tabs { position:sticky; top:0; background:#0f1117; z-index:10; }
-  .tabs-in { max-width:840px; margin:0 auto; display:flex; gap:2px; padding-top:6px; border-bottom:1px solid var(--line); }
-  /* flex:1 을 뺀다. 넷이 1120px 을 나눠 가져서 탭 하나가 280px 인데 글자는
+  .tabs-in { display:flex; gap:2px; padding-top:6px; border-bottom:1px solid var(--line); }
+  /* flex:1 을 뺀다. 탭들이 폭을 나눠 가져서 탭 하나가 280px 인데 글자는
      70px 이었다 — 210px 이 빈 공간이었다. 이제 글자 폭만큼만 차지한다. */
   .tab { background:none; border:none; color:#8b93a1; font:inherit; font-size:.82rem; font-weight:600; padding:12px 14px; cursor:pointer; border-bottom:2px solid transparent; margin-bottom:-1px; white-space:nowrap; }
   /* 클릭한 뒤 브라우저 기본 포커스 테두리가 남으면 네모 박스처럼 보인다.
