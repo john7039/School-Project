@@ -64,18 +64,28 @@ def _post_json(url, body, headers, timeout):
         return json.loads(resp.read())
 
 
-def _throttle(est=3000):
-    """최근 60초 토큰 사용량을 보고, 한도에 닿기 전에 잠깐 쉰다."""
+def _throttle(est=3000, wait_ok=True):
+    """최근 60초 토큰 사용량을 보고, 한도에 닿기 전에 잠깐 쉰다.
+
+    wait_ok=False — **사람이 기다리는 호출**은 쉬지 않는다.
+      배치는 60초 쉬어도 아무도 모르지만, 채팅에서 58초를 기다리면 끝난 것이다.
+      (2026-11-11 실측: 채팅 질문 다섯 번째에서 한도에 닿아 58초가 걸렸다.)
+      쉬는 대신 False 를 돌려주고, 부른 쪽이 로컬로 내려간다.
+    """
     now = time.time()
     while _recent and now - _recent[0][0] > 60:
         _recent.popleft()
     used = sum(t for _, t in _recent)
     if used + est > _TPM_MARGIN and _recent:
+        if not wait_ok:
+            print(f"  Groq 분당 토큰 한도 근접({used}) — 기다리지 않고 로컬로")
+            return False
         wait = 60 - (now - _recent[0][0]) + 0.5
         if wait > 0:
             print(f"  Groq 분당 토큰 한도 근접({used}) — {wait:.0f}초 대기")
             time.sleep(wait)
             return _throttle(est)
+    return True
 
 
 def _note_usage(data):
@@ -83,8 +93,13 @@ def _note_usage(data):
     _recent.append((time.time(), u.get("total_tokens") or 1500))
 
 
-def _groq(prompt, timeout):
-    _throttle()
+class Throttled(Exception):
+    """분당 한도에 닿았고 기다리지 않기로 했다. 부른 쪽이 로컬로 내려간다."""
+
+
+def _groq(prompt, timeout, wait_ok=True):
+    if not _throttle(wait_ok=wait_ok):
+        raise Throttled()
     data = _post_json(
         GROQ_URL,
         {"model": GROQ_MODEL,
@@ -106,7 +121,7 @@ def _local(prompt, timeout):
     return json.loads(data["response"])
 
 
-def generate_json(prompt, tries=3, timeout=300, prefer_local=False):
+def generate_json(prompt, tries=3, timeout=300, prefer_local=False, wait_ok=True):
     """JSON 응답을 받아 dict 로 돌려준다.
 
     기본은 Groq -> (실패하면) Ollama 순. 둘 다 실패하면 마지막 예외를 올린다.
@@ -121,6 +136,9 @@ def generate_json(prompt, tries=3, timeout=300, prefer_local=False):
 
       2026-10-31 실측(qwen2.5:7b, CPU): 환율 해설 30초 · 제목 번역 3초.
       기사 분석 100초와 달리 프롬프트가 짧아서 로컬로도 감당이 된다.
+
+    wait_ok=False — **사람이 기다리는 호출**(채팅)용. 분당 한도에 닿으면
+      쉬지 않고 바로 로컬로 내려간다. 배치는 60초 쉬어도 되지만 채팅은 안 된다.
     """
     global last_provider, _groq_blocked_until
 
@@ -135,9 +153,11 @@ def generate_json(prompt, tries=3, timeout=300, prefer_local=False):
     if GROQ_KEY and time.time() >= _groq_blocked_until:
         for attempt in range(tries):
             try:
-                out = _groq(prompt, min(timeout, 60))
+                out = _groq(prompt, min(timeout, 60), wait_ok=wait_ok)
                 last_provider = "groq"
                 return out
+            except Throttled:
+                break                      # 로컬로
             except urllib.error.HTTPError as e:
                 if e.code == 429:
                     # Retry-After 를 그대로 따른다. 분당 한도면 몇 초,
