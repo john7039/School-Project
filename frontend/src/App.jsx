@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 
 const API = ''  // 같은 출처 (nginx 가 /api 프록시)
 
@@ -1459,8 +1459,129 @@ function HomeTab({ onGo }) {
   )
 }
 
+// 채팅 — 우리가 모은 자료로만 답한다.
+//
+// ⚠️ 긴 연결을 붙잡지 않는다. 물어보고(POST) 몇 초마다 다시 물어본다(GET).
+//    nginx 60초·브라우저·Funnel 중 어디선가 끊긴다 — 단어 검색이 60초에
+//    끊겨서 화면에 아무 일도 안 일어났던 그 자리와 같다.
+const CHAT_EXAMPLES = ['요즘 물가 어때?', '한·미 금리 차이는?', '지금 환율 얼마야?',
+  '오늘 기사 뭐 있어?', '엔비디아 어때?']
+
+function ChatPanel({ onClose }) {
+  const [msgs, setMsgs] = useState([])       // {who:'me'|'ai', text, sources?, status?}
+  const [q, setQ] = useState('')
+  const [job, setJob] = useState(null)       // {id, elapsed}
+  const endRef = useRef(null)
+  const inRef = useRef(null)
+
+  useEffect(() => { inRef.current?.focus() }, [])
+  useEffect(() => { endRef.current?.scrollIntoView({ block: 'end' }) }, [msgs, job])
+
+  // 답이 올 때까지 3초마다 물어본다. 단어 검색과 같은 주기다.
+  useEffect(() => {
+    if (!job) return
+    let alive = true
+    const t = setTimeout(() => {
+      fetch(`${API}/api/chat?id=${job.id}`).then(r => r.json()).then(d => {
+        if (!alive) return
+        if (d.status === 'working') { setJob(j => j && { ...j, elapsed: d.elapsed }); return }
+        setJob(null)
+        setMsgs(m => [...m, d.status === 'ok'
+          ? { who: 'ai', text: d.answer, sources: d.sources }
+          : { who: 'ai', text: d.answer || d.message || '답을 만들지 못했습니다.', status: 'err' }])
+      }).catch(() => {
+        if (!alive) return
+        setJob(null)
+        setMsgs(m => [...m, { who: 'ai', text: '서버에 연결하지 못했습니다.', status: 'err' }])
+      })
+    }, 3000)
+    return () => { alive = false; clearTimeout(t) }
+  }, [job])
+
+  const send = (text) => {
+    const word = (text ?? q).trim()
+    if (!word || job) return
+    // 서버는 최근 몇 턴만 쓴다. 보내는 쪽에서도 줄여 토큰을 아낀다.
+    const history = []
+    for (let i = msgs.length - 1; i >= 0 && history.length < 3; i--) {
+      if (msgs[i].who === 'ai' && i > 0 && msgs[i - 1].who === 'me')
+        history.unshift({ q: msgs[i - 1].text, a: msgs[i].text })
+    }
+    setMsgs(m => [...m, { who: 'me', text: word }])
+    setQ('')
+    fetch(`${API}/api/chat`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ question: word, history }),
+    }).then(r => r.json()).then(d => {
+      if (d.status === 'working') { setJob({ id: d.id, elapsed: 0 }); return }
+      setMsgs(m => [...m, { who: 'ai', text: d.answer, sources: d.sources,
+                            examples: d.examples, status: d.status }])
+    }).catch(() => setMsgs(m => [...m,
+      { who: 'ai', text: '서버에 연결하지 못했습니다.', status: 'err' }]))
+  }
+
+  return (
+    <div className="cwrap" role="dialog" aria-label="물어보기">
+      <div className="chead">
+        <span className="ctitle">💬 물어보기</span>
+        <span className="csub">이 사이트가 모은 자료로만 답해요</span>
+        <button className="cx" onClick={onClose} aria-label="닫기">✕</button>
+      </div>
+
+      <div className="cbody">
+        {msgs.length === 0 && (
+          <div className="cintro">
+            <p>물가·금리·실업률·수출입, 환율, 오늘의 기사, 저장된 종목에 대해 물어보세요.</p>
+            <p className="cnote">예측과 투자 판단은 답하지 않습니다.</p>
+            <div className="cchips">
+              {CHAT_EXAMPLES.map(w => (
+                <button key={w} className="chip" onClick={() => send(w)}>{w}</button>
+              ))}
+            </div>
+          </div>
+        )}
+        {msgs.map((m, i) => (
+          <div key={i} className={`cmsg ${m.who}${m.status === 'err' ? ' err' : ''}`}>
+            <div className="cbubble">{m.text}</div>
+            {m.sources?.length > 0 && (
+              // 무엇을 보고 답했는지. 이게 있어야 확인할 수 있다.
+              <div className="csrc">본 자료 · {m.sources.join(' · ')}</div>
+            )}
+            {m.examples?.length > 0 && (
+              <div className="cchips">
+                {m.examples.map(w => (
+                  <button key={w} className="chip" onClick={() => send(w)}>{w}</button>
+                ))}
+              </div>
+            )}
+          </div>
+        ))}
+        {job && (
+          <div className="cmsg ai">
+            <div className="cbubble cwait">
+              찾아보는 중{job.elapsed > 6 ? ` … ${job.elapsed}초` : '…'}
+            </div>
+          </div>
+        )}
+        <div ref={endRef} />
+      </div>
+
+      <div className="cfoot">
+        <input ref={inRef} className="search-in" value={q}
+          placeholder="물가, 금리, 환율, 오늘 기사…"
+          onChange={e => setQ(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter') send() }} />
+        <button className="search-btn" onClick={() => send()} disabled={!!job}>
+          {job ? '…' : '보내기'}
+        </button>
+      </div>
+    </div>
+  )
+}
+
 function App() {
   const [tab, setTab] = useState('home')
+  const [chat, setChat] = useState(false)
   const today = new Date().toLocaleDateString('ko-KR',
     { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' })
   return (
@@ -1487,6 +1608,10 @@ function App() {
       {tab === 'stocks' && <StocksTab />}
       {tab === 'market' && <MarketTab />}
       {tab === 'fx' && <FxTab />}
+
+      {chat
+        ? <ChatPanel onClose={() => setChat(false)} />
+        : <button className="cfab" onClick={() => setChat(true)}>💬 물어보기</button>}
     </div>
   )
 }
@@ -1543,6 +1668,51 @@ const CSS = `
   .panel { padding-top:16px; }
   .lead { color:#8b93a1; font-size:.84rem; margin:0 0 14px; line-height:1.5; }
   .label { font-size:.72rem; text-transform:uppercase; letter-spacing:.08em; color:#9ca3af; font-weight:700; margin:18px 0 10px; }
+
+  /* ── 채팅 ── */
+  /* 본문(840px)을 안 건드리는 쪽을 골랐다. 열면 오른쪽에서 덮고, 닫으면
+     화면이 원래대로다. 반응형은 맨 마지막에 하기로 했으니 지금은 겹치는
+     방식이 레이아웃을 안 흔든다. */
+  .cfab { position:fixed; right:20px; bottom:20px; z-index:60;
+          background:#12351f; border:1px solid #1c4a2b; color:#4ade80;
+          border-radius:999px; padding:12px 18px; font:inherit; font-weight:700;
+          font-size:.88rem; cursor:pointer; box-shadow:0 6px 20px #0008; }
+  .cfab:hover { background:#174227; }
+  .cwrap { position:fixed; right:0; top:0; bottom:0; width:min(400px,100vw); z-index:61;
+           background:var(--s1); border-left:1px solid var(--line);
+           display:flex; flex-direction:column; box-shadow:-10px 0 30px #0007; }
+  .chead { display:flex; align-items:baseline; gap:9px; flex-wrap:wrap;
+           padding:15px 16px; border-bottom:1px solid var(--line); }
+  .ctitle { font-weight:700; font-size:.95rem; }
+  .csub { font-size:.72rem; color:#9ca3af; }
+  .cx { margin-left:auto; background:none; border:none; color:#9ca3af;
+        font:inherit; font-size:1rem; cursor:pointer; padding:0 2px; }
+  .cx:hover { color:#e6e8eb; }
+  .cbody { flex:1; overflow-y:auto; padding:14px 16px; display:flex;
+           flex-direction:column; gap:12px; }
+  .cintro { color:#9ca3af; font-size:.82rem; line-height:1.65; }
+  .cintro p { margin:0 0 6px; }
+  .cnote { color:#8b93a1; font-size:.76rem; }
+  .cchips { display:flex; flex-wrap:wrap; gap:6px; margin-top:9px; }
+  .cchips .chip { min-width:0; padding:6px 11px; font-size:.78rem; }
+  .cmsg { display:flex; flex-direction:column; gap:5px; }
+  .cmsg.me { align-items:flex-end; }
+  .cbubble { max-width:86%; padding:10px 13px; border-radius:13px;
+             font-size:.86rem; line-height:1.7; white-space:pre-wrap; }
+  .cmsg.me .cbubble { background:#12351f; border:1px solid #1c4a2b; color:#d7f5e2; }
+  .cmsg.ai .cbubble { background:var(--s2); border:1px solid var(--line); color:#e6e8eb; }
+  .cmsg.err .cbubble { background:#2a1a1e; border-color:#4a2630; color:#f8a0a0; }
+  .cwait { color:#9ca3af; }
+  .csrc { font-size:.7rem; color:#8b93a1; padding-left:3px; }
+  .cfoot { display:flex; gap:7px; padding:12px 14px; border-top:1px solid var(--line); }
+  .cfoot .search-in { font-size:.88rem; padding:10px 12px; }
+  .cfoot .search-btn { padding:10px 14px; font-size:.86rem; }
+  .cfoot .search-btn:disabled { opacity:.5; cursor:default; }
+  /* 좁은 화면에서는 전체를 덮는다 — 400px 패널이 본문을 가리는 것보다 낫다 */
+  @media (max-width:520px) {
+    .cwrap { width:100vw; border-left:none; }
+    .cfab { right:14px; bottom:14px; padding:11px 15px; font-size:.82rem; }
+  }
 
   /* ── 홈 화면 ── */
   .htop { display:flex; align-items:baseline; justify-content:space-between; gap:16px; flex-wrap:wrap; }
