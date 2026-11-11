@@ -1,5 +1,9 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+import uuid
+
+import chat_context
 import sqlite3
 import json
 import re
@@ -917,3 +921,148 @@ def fx(days: int = 15):
         }
 
     return {"days": out, "series": series, "live": live, "intraday": intraday}
+
+
+# ────────────────────────────────────────────────────────────────────
+# 채팅 — 우리 DB 에 있는 것만 근거로 답한다
+#
+# ⚠️ 이 사이트는 인터넷에 열려 있고(Funnel), 다른 엔드포인트는 전부 SQLite 를
+#    읽기만 해서 공짜였다. **채팅은 메시지 하나가 LLM 호출 하나다.**
+#    스크립트 한 줄이면 Groq 하루 한도(1,000회)를 몇 분에 태우고, 그다음
+#    로컬로 떨어져 서버가 밀린다. 그래서 세 겹으로 막는다.
+#      1. 사전에 안 걸리는 질문은 LLM 을 아예 안 부른다 (chat_context)
+#      2. IP 당 분당 제한
+#      3. 하루 전체 상한 — 수집 배치 몫을 남겨둔다
+# ────────────────────────────────────────────────────────────────────
+
+_CHAT_PER_MIN = 6            # 한 사람이 10초에 한 번. 대화하기엔 넉넉하다
+_CHAT_PER_DAY = 200          # Groq 하루 1,000 중 배치가 50~120 을 쓴다
+_CHAT_KEEP = 600             # 끝난 작업을 들고 있는 시간(초)
+
+_chat_jobs = {}              # id -> {"started", "done", "result"}
+_chat_hits = {}              # ip -> [최근 요청 시각]
+_chat_day = {"day": "", "n": 0}
+_CHAT_LOCK = threading.Lock()
+
+
+def _client_ip(request):
+    """nginx 가 X-Forwarded-For 로 넘긴다.
+
+    ⚠️ Funnel 로 들어온 요청은 tailscaled 가 127.0.0.1 로 넘겨주므로 그 값이
+       루프백일 수 있다. 그러면 **모두가 한 바구니**가 된다 — IP 별 제한이
+       전체 제한처럼 동작한다. 느슨해지는 쪽이 아니라 빡빡해지는 쪽이라
+       안전한 기본값이다.
+    """
+    xff = (request.headers.get("x-forwarded-for") or "").split(",")
+    ip = xff[0].strip() if xff and xff[0].strip() else ""
+    return ip or "unknown"
+
+
+def _chat_allow(ip):
+    """(되나, 안 되면 이유)"""
+    now = time.time()
+    today = datetime.date.today().isoformat()
+    with _CHAT_LOCK:
+        if _chat_day["day"] != today:
+            _chat_day.update(day=today, n=0)
+        if _chat_day["n"] >= _CHAT_PER_DAY:
+            return False, ("오늘은 여기까지입니다. 하루에 답할 수 있는 양을 정해뒀어요 "
+                           "— 수집·분석이 쓸 몫을 남겨둬야 해서입니다. 내일 다시 물어봐 주세요.")
+        hits = [t for t in _chat_hits.get(ip, []) if now - t < 60]
+        if len(hits) >= _CHAT_PER_MIN:
+            return False, "조금 빠릅니다. 1분에 %d번까지 답할 수 있어요." % _CHAT_PER_MIN
+        hits.append(now)
+        _chat_hits[ip] = hits
+        _chat_day["n"] += 1
+        # 오래된 바구니는 버린다 (메모리가 계속 늘지 않게)
+        for k in [k for k, v in _chat_hits.items() if not v or now - v[-1] > 300]:
+            _chat_hits.pop(k, None)
+        return True, ""
+
+
+def _chat_prune():
+    now = time.time()
+    with _CHAT_LOCK:
+        for k in [k for k, v in _chat_jobs.items() if now - v["started"] > _CHAT_KEEP]:
+            _chat_jobs.pop(k, None)
+
+
+def _run_chat(job_id, question, history, ctx):
+    import chat
+    conn = get_db()
+    try:
+        out = chat.ask(conn, question, history=history, ctx=ctx)
+    except Exception as e:
+        out = {"status": "error", "answer": "", "sources": [],
+               "message": "답을 만들지 못했습니다 (%s)" % e.__class__.__name__}
+    finally:
+        conn.close()
+    with _CHAT_LOCK:
+        j = _chat_jobs.get(job_id)
+        if j:
+            j["done"], j["result"] = True, out
+
+
+class ChatIn(BaseModel):
+    question: str = ""
+    # [{"q": "...", "a": "..."}] — 최근 몇 턴만 쓴다(chat.HISTORY_TURNS).
+    # ⚠️ Groq 무료는 분당 토큰이 먼저 걸린다. 대화가 길어지면 선형으로 는다.
+    history: list[dict] = []
+
+
+@app.post("/api/chat")
+def chat_ask(body: ChatIn, request: Request):
+    """질문을 받는다.
+
+    안 걸리는 질문은 **그 자리에서** 돌려준다(작업을 띄울 이유가 없다).
+    걸리면 백그라운드로 던지고 화면이 몇 초마다 다시 물어본다 — 단어 검색·
+    종목 분석과 같은 구조다. nginx 60초, 브라우저, Funnel 중 어디선가
+    끊기므로 긴 연결을 붙잡지 않는다.
+    """
+    import chat
+    _chat_prune()
+
+    q = (body.question or "").strip()
+    if not q:
+        return {"status": "miss", "answer": chat.MISS_ANSWER,
+                "sources": [], "examples": chat.EXAMPLES}
+
+    conn = get_db()
+    try:
+        ctx = chat.probe(conn, q)
+        if not ctx["matched"]:
+            # ⚠️ 호출도 안 썼으니 제한에서도 안 센다.
+            try:
+                chat_context.log_miss(conn, q)
+            except Exception:
+                pass
+            return {"status": "miss", "answer": chat.MISS_ANSWER,
+                    "sources": [], "examples": chat.EXAMPLES}
+    finally:
+        conn.close()
+
+    ok, why = _chat_allow(_client_ip(request))
+    if not ok:
+        return {"status": "busy", "answer": why, "sources": []}
+
+    job_id = uuid.uuid4().hex[:12]
+    with _CHAT_LOCK:
+        _chat_jobs[job_id] = {"started": time.time(), "done": False, "result": None}
+    threading.Thread(target=_run_chat,
+                     args=(job_id, q, body.history, ctx), daemon=True).start()
+    return {"status": "working", "id": job_id, "sources": ctx["sources"], "elapsed": 0}
+
+
+@app.get("/api/chat")
+def chat_state(id: str = ""):
+    """작업 상태. 화면이 몇 초마다 물어본다."""
+    with _CHAT_LOCK:
+        j = _chat_jobs.get(id)
+        if not j:
+            return {"status": "error", "message": "그 질문을 찾지 못했습니다. 다시 물어봐 주세요."}
+        if not j["done"]:
+            return {"status": "working", "id": id,
+                    "elapsed": int(time.time() - j["started"])}
+        out = dict(j["result"])
+    out["id"] = id
+    return out

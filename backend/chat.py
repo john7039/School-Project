@@ -129,7 +129,16 @@ MISS_ANSWER = (
     "물가·금리·실업률·수출입, 환율, 오늘의 기사, 그리고 저장된 종목이 그 범위입니다.")
 
 
-def ask(conn, question, history=None, prefer_local=False):
+def probe(conn, question):
+    """근거만 먼저 뽑는다. SQLite 만 읽으니 밀리초다.
+
+    엔드포인트가 이걸 먼저 불러 **안 걸리는 질문을 즉시 돌려보낸다** —
+    작업을 띄우고 폴링하게 만들 이유가 없다.
+    """
+    return chat_context.build(conn, _clean(question)[:MAX_QUESTION])
+
+
+def ask(conn, question, history=None, prefer_local=False, ctx=None):
     """질문 하나에 답한다.
 
     돌려주는 것
@@ -143,7 +152,7 @@ def ask(conn, question, history=None, prefer_local=False):
         return {"status": "miss", "answer": MISS_ANSWER, "sources": [],
                 "examples": EXAMPLES, "tokens": 0}
 
-    ctx = chat_context.build(conn, q)
+    ctx = ctx or chat_context.build(conn, q)
     if not ctx["matched"]:
         # 규칙이 못 잡은 질문을 남긴다. 사전을 뭘로 늘릴지가 데이터로 나온다.
         try:
