@@ -335,13 +335,33 @@ def build(conn):
         spec = SPEC[key]
         dec = spec["decimals"]
         pairs = [(d, v) for d, v, _ in series]
-        date, value, release = series[-1]
-        prev_month = pairs[-2][1] if len(pairs) >= 2 else None
-        same_month_last_year = dict(pairs).get(f"{int(date[:4]) - 1}{date[4:]}")
+        val_by = dict(pairs)
+        rel_by = {d: r for d, _, r in series}
+        months_in = [d for d, _ in pairs]
 
         if spec["unit"] in ("index", "amount"):
             # 지수는 거의 단조증가라 선을 그려도 읽을 게 없다. 그래프도 상승률로.
             chart_pairs = _yoy_series(pairs)
+        else:
+            chart_pairs = pairs
+
+        # ⚠️ **상승률을 못 구하는 달은 기준이 될 수 없다.**
+        #   지수 지표는 12개월 전이 있어야 상승률이 나온다. 2025-10 은 미국
+        #   통계가 아예 안 나온 달이라(셧다운) 2026-10 은 지수가 들어와도
+        #   상승률을 영영 못 구한다.
+        #   예전에는 month·발표일을 **최신 행**에서, headline 은 **상승률**에서
+        #   가져와 서로 다른 달이 됐다 — 화면에 "2026년 10월분 · 11/10 발표 ·
+        #   +3.7%" 로 떴는데 그 +3.7% 는 9월 값이었다.
+        #   화면에 같이 보이는 것들은 같은 달이어야 한다.
+        anchor = chart_pairs[-1][0] if chart_pairs else pairs[-1][0]
+        date = anchor
+        value = val_by[anchor]
+        release = rel_by.get(anchor)
+        ai = months_in.index(anchor)
+        prev_month = pairs[ai - 1][1] if ai >= 1 else None
+        same_month_last_year = val_by.get(f"{int(date[:4]) - 1}{date[4:]}")
+
+        if spec["unit"] in ("index", "amount"):
             headline = chart_pairs[-1][1] if chart_pairs else None
             yoy = _amount(headline, "%", dec)
             mom = _amount(
@@ -349,7 +369,6 @@ def build(conn):
             if not spec.get("mom", True):
                 mom = None
         else:
-            chart_pairs = pairs
             headline = value
             yoy = _amount(
                 value - same_month_last_year if same_month_last_year is not None else None,
