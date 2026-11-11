@@ -211,6 +211,30 @@ def _p_articles(conn, n=2):
 #    종목만 company_daily 에 한 건씩 남는다).
 #    채팅에서 야후를 부르면 3~4초가 더 붙는다. 그래서 여기서는 **저장된 것만**
 #    쓰고, 없으면 종목별 탭으로 안내한다. 같은 일을 두 군데서 하지 않는다.
+# ⚠️ 저장된 AI 분석은 **"오늘 코스피는…" 으로 시작한다.** 그 '오늘' 은 쓴 날이지
+#   지금이 아니다. 그대로 넘겼더니 11-04 분석을 받아온 11-11 시세와 묶어
+#   "같은 날 종가 210,500원" 이라고 답했다.
+#   날짜로 바꿔 넣고, 너무 오래된 건 아예 안 넣는다.
+_ANALYSIS_MAX_DAYS = 3
+
+
+def _p_analysis(conn, tk):
+    d = conn.execute("SELECT date, ai_summary FROM company_daily WHERE ticker=?"
+                     " AND IFNULL(ai_summary,'')<>'' ORDER BY date DESC LIMIT 1",
+                     (tk,)).fetchone()
+    if not d:
+        return None
+    try:
+        age = (datetime.date.today() - datetime.date.fromisoformat(d["date"])).days
+    except Exception:
+        return None
+    if age > _ANALYSIS_MAX_DAYS:
+        return None               # 지금 수치를 물었는데 일주일 전 해설은 헷갈리기만 한다
+    when = "%d월 %d일" % (int(d["date"][5:7]), int(d["date"][8:10]))
+    txt = d["ai_summary"][:160].replace("오늘", when)
+    return "  %s 분석 — %s" % (when, txt)
+
+
 # ⚠️ 주가·지수는 **하루만 지나도 낡은 값**이다. 5일로 뒀더니 코스피를 물었을 때
 #    닷새 전(11-06) 수치를 "2026-11-06 기준" 이라고만 하고 넘겼다 — 날짜는
 #    맞지만 "지금 값은 다른 데 있다" 를 안 알려줬다.
@@ -219,15 +243,59 @@ _STALE_DAYS = 0
 
 
 def _unit_of(tk):
-    """⚠️ 지수에는 통화를 붙이면 안 된다. 코스피를 '4,932.00원' 으로 썼었다."""
+    """저장된 값에만 쓴다. 받아온 값은 stockquote 가 단위를 같이 준다."""
     if tk.startswith("^"):
-        return ""
+        return ""                 # 지수는 통화가 아니다. 코스피는 '원' 이 아니다
     return "원" if tk.endswith((".KS", ".KQ")) else "달러"
 
 
-def _p_stock(conn, tk, notes):
+def _p_live(tk, nm):
+    """⚠️ 처음엔 '채팅은 DB 만 본다' 로 했는데 틀렸다.
+
+    "코스피 알려줘" 에 "저장된 건 닷새 전 것뿐이니 종목별 탭에 가보세요" 는
+    답이 아니다. 묻는 사람은 **지금 수치**를 원한다.
+
+    안 붙였던 이유 셋이 전부 약했다 —
+      "3~4초 느려진다"      로컬 폴백은 7~10초고 그건 받아들였다
+      "남용 통로가 된다"     사전에 걸린 종목만 부른다. 분당 6회 제한도 있다
+      "같은 일을 두 군데서"   그 원칙은 **중복 화면**을 피하라는 것이지
+                          같은 데이터 소스를 재사용하지 말라는 게 아니다
+
+    `stockquote.quote()` 는 TTL 캐시가 있고 지수 단위도 이미 처리한다.
+    """
+    try:
+        import stockquote
+        return stockquote.quote(tk)
+    except Exception as e:
+        print("  채팅 시세 조회 실패 %s: %s" % (tk, e.__class__.__name__))
+        return None
+
+
+def _p_stock(conn, tk, notes, live=False):
     nm = tickers.name_of(tk) or tk
     cur = _unit_of(tk)
+
+    q = _p_live(tk, nm) if live else None
+    if q and q.get("price") is not None:
+        u = q.get("unit") or ""
+        L = ["%s (%s) · %s%s" % (q.get("short_name") or nm, tk,
+                                 q.get("state_ko") or "", 
+                                 " · %s 기준" % q["quote_time"] if q.get("quote_time") else "")]
+        L.append("  %s%s%s" % (format(q["price"], ",.%df" % (q.get("decimals") or 0)), u,
+                               " (전일 대비 %+.2f%%)" % q["pct"] if q.get("pct") is not None else ""))
+        if q.get("state_note"):
+            L.append("  " + q["state_note"])
+        # 받아온 지금 값 + 저장해 둔 최근 흐름·분석을 같이 준다
+        rows = conn.execute(
+            "SELECT date, close FROM prices WHERE ticker=? ORDER BY date DESC LIMIT 6",
+            (tk,)).fetchall()
+        if rows:
+            L.append("  최근 종가 " + " ".join(
+                "%s %.2f" % (r["date"][5:], r["close"]) for r in reversed(rows)))
+        a = _p_analysis(conn, tk)
+        if a:
+            L.append(a)
+        return nm, "\n".join(L)
 
     rows = conn.execute(
         "SELECT date, close FROM prices WHERE ticker=? ORDER BY date DESC LIMIT 6",
@@ -281,8 +349,9 @@ def _p_stock(conn, tk, notes):
             L.append("  %s%s%s" % (format(d["close"], ",.2f"), cur,
                                    " (%+.2f%%)" % d["change_pct"] if d["change_pct"] else ""))
 
-    if d and d["ai_summary"]:
-        L.append("  AI 분석(%s) %s" % (d["date"], d["ai_summary"][:160]))
+    a = _p_analysis(conn, tk)
+    if a:
+        L.append(a)
     return nm, "\n".join(L)
 
 
@@ -397,11 +466,15 @@ def _p_news(conn, q):
 BUDGET = 800          # 토큰. 작게 시작한다 — 늘리는 건 쉽고 줄이는 건 어렵다.
 
 
-def build(conn, question, budget=BUDGET):
+def build(conn, question, budget=BUDGET, live=False):
     """질문 → 근거 조각들.
 
     돌려주는 것
       matched   하나라도 걸렸나. False 면 **LLM 을 부르지 말 것**
+
+    live=True — 종목·지수는 야후에서 **지금 값을 받아온다**(1~3초).
+      POST 핸들러(probe)는 즉시 답해야 하므로 False 로 부르고,
+      백그라운드 작업에서 True 로 다시 만든다.
       context   프롬프트에 끼울 문자열
       sources   화면에 "무엇을 봤는지" 로 보여줄 라벨들
       tokens    어림 토큰 수
@@ -436,7 +509,7 @@ def build(conn, question, budget=BUDGET):
 
     # ③ 종목
     for tk in _stocks(q):
-        p = _p_stock(conn, tk, notes)
+        p = _p_stock(conn, tk, notes, live)
         if p:
             pieces.append((1,) + p)
 

@@ -160,7 +160,9 @@ def ask(conn, question, history=None, prefer_local=False, ctx=None):
         return {"status": "miss", "answer": MISS_ANSWER, "sources": [],
                 "examples": EXAMPLES, "tokens": 0}
 
-    ctx = ctx or chat_context.build(conn, q)
+    # ⚠️ probe 가 만든 ctx 를 재사용하지 않는다. 그건 POST 가 즉시 답하려고
+    #    DB 만 본 것이고, 여기(백그라운드)서는 **시세를 받아와야** 한다.
+    ctx = chat_context.build(conn, q, live=True)
     if not ctx["matched"]:
         # 규칙이 못 잡은 질문을 남긴다. 사전을 뭘로 늘릴지가 데이터로 나온다.
         try:
