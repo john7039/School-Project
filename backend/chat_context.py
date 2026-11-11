@@ -264,6 +264,112 @@ def _p_stock(conn, tk):
     return nm, "\n".join(L)
 
 
+# ⚠️ 모아둔 뉴스 21,000건을 안 보고 있었다.
+#   "젠슨황 요즘 이슈 있던데" 에 "자료에 없다" 고 답했는데, 그 이름이 우리
+#   DB 기사 244건에 들어 있었다. daily(AI 가 고른 63건)만 보고 news 는
+#   아예 안 봤다.
+#
+#   main.py 의 search_news() 를 그대로 쓰지 않는 이유 — 그 함수는 처음 보는
+#   단어를 **그 자리에서 구글 뉴스에서 받아온다**(최대 15초). 채팅의 POST 는
+#   즉시 답해야 하고, 아무 단어나 외부 호출을 일으키면 남용 통로가 된다.
+#   **채팅은 DB 만 본다.** 없으면 기사 검색 탭으로 보낸다(거기가 받아오는 자리다).
+_NEWS_MAX = 4
+_NEWS_SUMMARY = 110
+
+
+# 질문에서 '찾아볼 만한 말' 을 뽑는다.
+#
+# ⚠️ search_terms.expand() 는 **검색창용**이다 — "질문 전체 = 검색어" 를
+#    가정해서, 문장을 넣으면 문장 전체를 한 덩어리로 돌려준다.
+#    expand("젠슨황 요즘 이슈가 있던데") → ['젠슨황 요즘 이슈가 있던데']
+#    그 문장이 기사 제목에 통째로 들어 있을 리가 없다. 그래서 0건이 됐다.
+_STOP = {
+    "요즘", "지금", "오늘", "어제", "내일", "최근", "이슈", "소식", "기사", "뉴스",
+    "관련", "무슨", "어떤", "어때", "어떠", "어떻게", "있어", "있나", "있는", "있었",
+    "있던데", "뭐야", "뭔가", "알려줘", "알려", "해줘", "대해", "대한", "그리고",
+    "근데", "진짜", "정도", "같은", "같아", "때문", "하는", "하고", "입니다",
+    "인가요", "인가", "일까", "일까요", "건가", "건데", "는데", "던데", "에서",
+    "에게", "으로", "하기", "되는", "된다", "한다", "이라", "라고",
+    "누구", "누구야", "누가", "어디", "언제", "얼마", "얼마나", "제발", "그래",
+    "아니", "맞아", "그럼", "이거", "저거", "그거", "먹지", "하지", "보자",
+}
+# ⚠️ 1건짜리는 버린다. 물어볼 만한 주제면 보통 두 건 이상 있다.
+#    '먹지' 가 기사 하나에 걸려서 "밥 뭐 먹지" 가 통과했다.
+_WORD_MIN_HITS = 2
+_WORD_MAX_HITS = 1200     # 21,000건 중 1,200건 넘게 걸리면 일반어다
+
+
+def _candidates(q):
+    raw = re.findall(r"[가-힣]{2,}|[A-Za-z]{2,}|\d{4,}", q)
+    out = []
+    for w in raw:
+        if w.lower() in _STOP or w in _STOP:
+            continue
+        cands = [w]
+        # ⚠️ 한국어는 외국 이름을 **띄어 쓴다** — DB 에는 '젠슨 황' 인데
+        #    질문은 '젠슨황' 이다. 그래서 띄어쓰기를 넣어본다.
+        #    끝 글자를 떼는 방식으로 했다가 크게 틀렸다 —
+        #    '파이썬'→'파이' 가 '파이낸셜' 에, '누구야'→'누구' 가 아무 데나
+        #    걸려서 범위 밖 질문이 전부 통과했다. 자르면 **다른 말**이 된다.
+        if re.fullmatch(r"[가-힣]{3,6}", w):
+            cands += [w[:i] + " " + w[i:] for i in range(2, len(w))]
+        for c in cands:
+            if c not in out and c.lower() not in _STOP and len(c) >= 2:
+                out.append(c)
+    return out[:10]
+
+
+def _like(t):
+    esc = t.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return "%" + esc + "%"
+
+
+def _p_news(conn, q):
+    from search_terms import expand
+    # 사전에 있는 말은 영어로도 넓혀서 같이 찾는다(기사가 영어라서).
+    terms = [t for t in (expand(q) or [])[1:] if len(t) >= 2] + _candidates(q)
+    if not terms:
+        return None
+
+    # ⚠️ 어느 말로 찾을지 **건수로 고른다.** 0건이면 없는 말이고, 너무 많이
+    #    걸리면 일반어다('있던' 같은 것). 적게 걸리는 말이 가장 구체적이다.
+    scored = []
+    for t in terms:
+        pat = _like(t)
+        n = conn.execute(
+            "SELECT COUNT(*) FROM news WHERE title LIKE ? ESCAPE '\\'"
+            " OR IFNULL(title_ko,'') LIKE ? ESCAPE '\\'"
+            " OR IFNULL(summary,'') LIKE ? ESCAPE '\\'", (pat, pat, pat)).fetchone()[0]
+        if _WORD_MIN_HITS <= n <= _WORD_MAX_HITS:
+            scored.append((n, t))
+    if not scored:
+        return None
+    scored.sort()
+    use = [t for _, t in scored[:3]]
+
+    conds, params = [], []
+    for t in use:
+        pat = _like(t)
+        conds.append("(title LIKE ? ESCAPE '\\' OR IFNULL(title_ko,'') LIKE ? ESCAPE '\\'"
+                     " OR IFNULL(summary,'') LIKE ? ESCAPE '\\')")
+        params += [pat, pat, pat]
+    rows = conn.execute(
+        "SELECT published, COALESCE(title_ko, title) AS t, title, source, summary"
+        "  FROM news WHERE " + " OR ".join(conds) +
+        " ORDER BY published DESC LIMIT ?", params + [_NEWS_MAX]).fetchall()
+    if not rows:
+        return None
+    L = ["'%s' 로 찾은 기사 (최신 %d건 · 전부 지나간 기사다)"
+         % (" · ".join(use), len(rows))]
+    for r in rows:
+        day = (r["published"] or "")[:8]
+        day = "%s-%s-%s" % (day[:4], day[4:6], day[6:8]) if len(day) == 8 else day
+        L.append("  [%s · %s] %s" % (day, r["source"] or "-", r["t"]))
+        if r["summary"]:
+            L.append("    " + re.sub(r"\s+", " ", r["summary"])[:_NEWS_SUMMARY])
+    return "기사 검색", "\n".join(L)
+
+
 # ── 조립 ──
 
 BUDGET = 800          # 토큰. 작게 시작한다 — 늘리는 건 쉽고 줄이는 건 어렵다.
@@ -317,6 +423,18 @@ def build(conn, question, budget=BUDGET):
         p = _p_articles(conn, 2 if pieces else 3)
         if p:
             pieces.append((2,) + p)
+
+    # ⑤ **모아둔 기사는 항상 찾아본다** (2ms). 사전에 없는 사람 이름·사건이
+    #    여기 걸린다 — '젠슨황' 이 244건 있었다.
+    #
+    #    ⚠️ 처음엔 "아무것도 안 걸렸을 때만" 으로 했는데 틀렸다.
+    #    "젠슨황 요즘 **이슈** 있던데" 는 '이슈' 가 _ART 에 걸려서 **오늘의
+    #    기사 3건**(젠슨황과 무관)이 갔고, LLM 이 정직하게 "자료에 없다" 고
+    #    답했다. 걸렸다고 해서 **맞는 게** 걸린 건 아니다.
+    #    찾은 기사를 오늘의 기사보다 앞에 둔다(우선순위 1 vs 2).
+    p = _p_news(conn, q)
+    if p:
+        pieces.append((1,) + p)
 
     if not pieces:
         return {"matched": False, "context": "", "sources": [],

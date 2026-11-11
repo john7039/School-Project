@@ -1531,7 +1531,7 @@ function ChatPanel({ onClose }) {
       <div className="cbody">
         {msgs.length === 0 && (
           <div className="cintro">
-            <p>물가·금리·실업률·수출입, 환율, 오늘의 기사, 저장된 종목에 대해 물어보세요.</p>
+            <p>물가·금리·실업률·수출입, 환율, 모아둔 기사 2만여 건, 저장된 종목에서 찾아 답해요.</p>
             <p className="cnote">예측과 투자 판단은 답하지 않습니다.</p>
             <div className="cchips">
               {CHAT_EXAMPLES.map(w => (
