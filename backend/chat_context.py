@@ -98,12 +98,94 @@ def _stocks(q):
     return found[:3]             # 한 질문에 세 종목이면 충분하다
 
 
+# ── 언제를 물었나 ──
+#
+# 날짜를 말하지 않으면 **최신**이다 (사람들은 보통 지금을 궁금해한다).
+# 날짜를 말하면 그때 기준으로 찾는다 — "11월 6일 코스피 얼마였어?"
+_REL = {
+    "오늘": 0, "어제": 1, "그제": 2, "그저께": 2, "엊그제": 2, "그끄제": 3,
+}
+
+
+def _mk(y, m, d):
+    try:
+        return datetime.date(y, m, d)
+    except ValueError:
+        return None
+
+
+def _when(q):
+    """(시작일, 끝일, 사람이 읽는 라벨) 또는 None(=최신).
+
+    ⚠️ 연도를 안 밝히면 올해로 보되, **미래가 되면 작년**으로 돌린다.
+       11월에 "12월 5일" 을 물으면 올해 12월은 아직 안 왔으니 작년이다.
+    """
+    today = datetime.date.today()
+
+    m = re.search(r"(20\d{2})\s*[-./년]\s*(\d{1,2})\s*[-./월]\s*(\d{1,2})", q)
+    if m:
+        d = _mk(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+        if d:
+            return d, d, "%d년 %d월 %d일" % (d.year, d.month, d.day)
+
+    m = re.search(r"(\d{1,2})\s*월\s*(\d{1,2})\s*일", q)
+    if m:
+        mo, da = int(m.group(1)), int(m.group(2))
+        d = _mk(today.year, mo, da) or _mk(today.year - 1, mo, da)
+        if d and d > today:
+            d = _mk(today.year - 1, mo, da)
+        if d:
+            return d, d, "%d월 %d일" % (d.month, d.day)
+
+    for w, back in _REL.items():
+        if w in q:
+            d = today - datetime.timedelta(days=back)
+            return d, d, w
+
+    if "지난주" in q or "저번주" in q:
+        end = today - datetime.timedelta(days=today.weekday() + 1)
+        return end - datetime.timedelta(days=6), end, "지난주"
+    if "이번주" in q or "금주" in q:
+        return today - datetime.timedelta(days=today.weekday()), today, "이번주"
+    if "지난달" in q or "저번달" in q:
+        first = today.replace(day=1)
+        end = first - datetime.timedelta(days=1)
+        return end.replace(day=1), end, "지난달"
+
+    # '11월' 처럼 달만 — 뒤에 '일' 이 안 붙은 경우
+    m = re.search(r"(\d{1,2})\s*월(?!\s*\d)", q)
+    if m:
+        mo = int(m.group(1))
+        y = today.year if mo <= today.month else today.year - 1
+        first = _mk(y, mo, 1)
+        if first:
+            nxt = _mk(y + (mo == 12), (mo % 12) + 1, 1)
+            return first, nxt - datetime.timedelta(days=1), "%d년 %d월" % (y, mo)
+    return None
+
+
 # ── 조각 만들기 ──
 # 각 함수는 (라벨, 본문) 을 돌려준다. 본문은 **이미 완성된 문장**이어야 한다 —
 # LLM 이 계산하거나 해석할 거리를 남기지 않는다.
 
-def _p_indicator(d):
-    """indicators.build() 한 항목 → 조각."""
+def _p_indicator(d, when=None):
+    """indicators.build() 한 항목 → 조각.
+
+    날짜를 말했으면 그 달 값을 앞에 붙인다. 지표는 월 단위라 '11월 6일' 도
+    11월분으로 본다.
+    """
+    if when:
+        lo, hi, label = when
+        pts = (d.get("chart") or {}).get("points") or []
+        want = {"%02d.%02d" % (y % 100, m)
+                for y, m in {(lo.year, lo.month), (hi.year, hi.month)}}
+        hit = [p for p in pts if p["t"] in want]
+        if hit:
+            return "%s %s" % (d["country"], d["label"]), (
+                "%s %s · %s 기준\n  %s%s\n  (물으신 때의 값이다. 아래는 참고용 최신치)\n%s"
+                % ("미국" if d["country"] == "US" else "한국", d["label"], label,
+                   hit[-1]["rate"], d["chart"]["unit"],
+                   _p_indicator(d)[1]))
     L = ["%s %s · %s 기준%s" % (
         "미국" if d["country"] == "US" else "한국", d["label"], d["month"],
         # released 는 이미 '11/2 발표' 꼴이다. '발표' 를 또 붙이면 두 번 나온다.
@@ -151,7 +233,22 @@ def _p_rategap(items):
         % (t, u, k, u - k, "높음" if u > k else "낮음", len(gaps), inv, wt, wg))
 
 
-def _p_fx(conn):
+def _p_fx(conn, when=None):
+    if when:
+        lo, hi, label = when
+        rows = conn.execute(
+            "SELECT pair, date, rate FROM fx WHERE date BETWEEN ? AND ?"
+            " ORDER BY date", (lo.isoformat(), hi.isoformat())).fetchall()
+        if not rows:
+            return "환율", "환율 · **%s 자료가 없습니다.**" % label
+        L = ["환율 · %s (장이 닫힌 뒤 확정된 종가)" % label]
+        for pair, nm in (("USDKRW", "원/달러"), ("EURKRW", "원/유로")):
+            got = [r for r in rows if r["pair"] == pair]
+            if got:
+                L.append("  %s %s" % (nm, " ".join(
+                    "%s %.2f원" % (r["date"][5:], r["rate"]) for r in got[-7:])))
+        return "환율", "\n".join(L)
+
     cur = conn.execute("SELECT pair, rate, prev_close, market_time, market_state"
                        " FROM fx_live")
     rows = {r["pair"]: r for r in cur.fetchall()}
@@ -175,10 +272,23 @@ def _p_fx(conn):
     return "환율", "\n".join(L)
 
 
-def _p_articles(conn, n=2):
+def _p_articles(conn, n=2, when=None):
     # ⚠️ daily 는 "어느 날 어느 기사를 골랐나" 만 들고 있다. 내용은
     #    article_analysis 에 있다 (/api/daily 가 하는 것과 같은 조인).
-    rows = conn.execute(
+    if when:
+        lo, hi, label = when
+        rows = conn.execute(
+            "SELECT d.date, COALESCE(a.title, d.title) AS title, a.title_ko,"
+            "       COALESCE(a.source, d.source) AS source,"
+            "       COALESCE(a.sentiment, d.sentiment) AS sentiment,"
+            "       COALESCE(a.brief, d.brief) AS brief, a.impacts"
+            "  FROM daily d LEFT JOIN article_analysis a ON a.url = d.url"
+            " WHERE d.date BETWEEN ? AND ? ORDER BY d.date DESC LIMIT 5",
+            (lo.isoformat(), hi.isoformat())).fetchall()
+        if not rows:
+            return None
+    else:
+        rows = conn.execute(
         "SELECT d.date, COALESCE(a.title, d.title) AS title, a.title_ko,"
         "       COALESCE(a.source, d.source) AS source,"
         "       COALESCE(a.sentiment, d.sentiment) AS sentiment,"
@@ -271,9 +381,29 @@ def _p_live(tk, nm):
         return None
 
 
-def _p_stock(conn, tk, notes, live=False):
+def _p_stock(conn, tk, notes, live=False, when=None):
     nm = tickers.name_of(tk) or tk
     cur = _unit_of(tk)
+
+    # 날짜를 말했으면 그날 것을 찾는다. 지금 값을 받아올 이유가 없다.
+    if when:
+        lo, hi, label = when
+        r = conn.execute(
+            "SELECT date, close FROM prices WHERE ticker=? AND date BETWEEN ? AND ?"
+            " ORDER BY date DESC LIMIT 1", (tk, lo.isoformat(), hi.isoformat())).fetchone()
+        if not r:
+            r = conn.execute(
+                "SELECT date, close FROM company_daily WHERE ticker=? AND date BETWEEN ? AND ?"
+                " ORDER BY date DESC LIMIT 1",
+                (tk, lo.isoformat(), hi.isoformat())).fetchone()
+        if r and r["close"] is not None:
+            return nm, "%s (%s) · %s(%s) 종가\n  %s%s" % (
+                nm, tk, label, r["date"], format(r["close"], ",.2f"), cur)
+        notes.append("%s의 %s 자료는 저희가 안 들고 있어요. "
+                     "매일 쌓는 건 미국 주요 종목뿐이고, 나머지는 검색했을 때만 남습니다."
+                     % (nm, label))
+        return nm, ("%s · **%s 자료가 없습니다.**\n"
+                    "  저장된 날짜가 아니면 못 찾습니다." % (nm, label))
 
     q = _p_live(tk, nm) if live else None
     if q and q.get("price") is not None:
@@ -415,7 +545,7 @@ def _like(t):
     return "%" + esc + "%"
 
 
-def _p_news(conn, q):
+def _p_news(conn, q, when=None):
     from search_terms import expand
     # 사전에 있는 말은 영어로도 넓혀서 같이 찾는다(기사가 영어라서).
     terms = [t for t in (expand(q) or [])[1:] if len(t) >= 2] + _candidates(q)
@@ -444,9 +574,15 @@ def _p_news(conn, q):
         conds.append("(title LIKE ? ESCAPE '\\' OR IFNULL(title_ko,'') LIKE ? ESCAPE '\\'"
                      " OR IFNULL(summary,'') LIKE ? ESCAPE '\\')")
         params += [pat, pat, pat]
+    where = "(" + " OR ".join(conds) + ")"
+    if when:
+        lo, hi, _ = when
+        where += " AND published >= ? AND published < ?"
+        params += [lo.strftime("%Y%m%d"),
+                   (hi + datetime.timedelta(days=1)).strftime("%Y%m%d")]
     rows = conn.execute(
         "SELECT published, COALESCE(title_ko, title) AS t, title, source, summary"
-        "  FROM news WHERE " + " OR ".join(conds) +
+        "  FROM news WHERE " + where +
         " ORDER BY published DESC LIMIT ?", params + [_NEWS_MAX]).fetchall()
     if not rows:
         return None
@@ -484,7 +620,9 @@ def build(conn, question, budget=BUDGET, live=False):
 
     q = question or ""
     pieces = []                       # (우선순위, 라벨, 본문)
-    notes = []                        # 답 뒤에 **반드시** 붙일 말 (LLM 이 흘려도)
+    notes = []
+    # 날짜를 말하지 않으면 None — 그러면 전부 **최신**을 쓴다.
+    when = _when(q)                        # 답 뒤에 **반드시** 붙일 말 (LLM 이 흘려도)
 
     # ① 지표 — 질문에 걸린 것만. 걸리면 그 나라 것만.
     want = [k for k, words in _IND.items() if _has(q, words)]
@@ -494,7 +632,7 @@ def build(conn, question, budget=BUDGET, live=False):
         for name in want:
             for d in items:
                 if d["name"] == name and d["country"] in cc:
-                    pieces.append((0,) + _p_indicator(d))
+                    pieces.append((0,) + _p_indicator(d, when))
         # 금리를 물었고 나라를 안 밝혔으면 금리차가 거의 항상 답의 일부다
         if "금리" in want and len(cc) == 2:
             gap = _p_rategap(items)
@@ -503,20 +641,20 @@ def build(conn, question, budget=BUDGET, live=False):
 
     # ② 환율
     if _has(q, _FX):
-        p = _p_fx(conn)
+        p = _p_fx(conn, when)
         if p:
             pieces.append((1,) + p)
 
     # ③ 종목
     for tk in _stocks(q):
-        p = _p_stock(conn, tk, notes, live)
+        p = _p_stock(conn, tk, notes, live, when)
         if p:
             pieces.append((1,) + p)
 
     # ④ 기사 — 다른 게 아무것도 안 걸렸을 때만 넉넉히 넣는다.
     #    "금리 어때?" 에 기사까지 끼워 넣으면 예산만 먹고 답은 흐려진다.
     if _has(q, _ART):
-        p = _p_articles(conn, 2 if pieces else 3)
+        p = _p_articles(conn, 2 if pieces else 3, when)
         if p:
             pieces.append((2,) + p)
 
@@ -528,7 +666,7 @@ def build(conn, question, budget=BUDGET, live=False):
     #    기사 3건**(젠슨황과 무관)이 갔고, LLM 이 정직하게 "자료에 없다" 고
     #    답했다. 걸렸다고 해서 **맞는 게** 걸린 건 아니다.
     #    찾은 기사를 오늘의 기사보다 앞에 둔다(우선순위 1 vs 2).
-    p = _p_news(conn, q)
+    p = _p_news(conn, q, when)
     if p:
         pieces.append((1,) + p)
 
