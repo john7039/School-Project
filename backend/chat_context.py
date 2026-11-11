@@ -211,19 +211,30 @@ def _p_articles(conn, n=2):
 #    종목만 company_daily 에 한 건씩 남는다).
 #    채팅에서 야후를 부르면 3~4초가 더 붙는다. 그래서 여기서는 **저장된 것만**
 #    쓰고, 없으면 종목별 탭으로 안내한다. 같은 일을 두 군데서 하지 않는다.
-_STALE_DAYS = 5
+# ⚠️ 주가·지수는 **하루만 지나도 낡은 값**이다. 5일로 뒀더니 코스피를 물었을 때
+#    닷새 전(11-06) 수치를 "2026-11-06 기준" 이라고만 하고 넘겼다 — 날짜는
+#    맞지만 "지금 값은 다른 데 있다" 를 안 알려줬다.
+#    오늘 것이 아니면 **항상** 며칠 전인지와 어디서 지금 값을 보는지 적는다.
+_STALE_DAYS = 0
 
 
-def _p_stock(conn, tk):
+def _unit_of(tk):
+    """⚠️ 지수에는 통화를 붙이면 안 된다. 코스피를 '4,932.00원' 으로 썼었다."""
+    if tk.startswith("^"):
+        return ""
+    return "원" if tk.endswith((".KS", ".KQ")) else "달러"
+
+
+def _p_stock(conn, tk, notes):
     nm = tickers.name_of(tk) or tk
-    won = tk.endswith((".KS", ".KQ")) or tk.startswith("^KS")
-    cur = "원" if won else "달러"
+    cur = _unit_of(tk)
 
     rows = conn.execute(
         "SELECT date, close FROM prices WHERE ticker=? ORDER BY date DESC LIMIT 6",
         (tk,)).fetchall()
     if rows:
         c0, c1 = rows[0], (rows[1] if len(rows) > 1 else None)
+        gap = (datetime.date.today() - datetime.date.fromisoformat(c0["date"])).days
         L = ["%s (%s) · %s 종가 기준" % (nm, tk, c0["date"])]
         if c1 and c1["close"]:
             L.append("  %s%s (전일 대비 %+.2f%%)" % (
@@ -231,6 +242,9 @@ def _p_stock(conn, tk):
                 (c0["close"] - c1["close"]) / c1["close"] * 100))
         L.append("  최근 종가 " + " ".join(
             "%s %.2f" % (r["date"][5:], r["close"]) for r in reversed(rows)))
+        if gap > 3:
+            # 주말·휴장이면 2~3일은 정상이다. 그보다 길면 수집이 밀린 것이다.
+            L.append("  ⚠️ %d일 전 자료다. 그 뒤로 쌓인 게 없다." % gap)
     else:
         L = None
 
@@ -247,10 +261,18 @@ def _p_stock(conn, tk):
         old = (datetime.date.today()
                - datetime.date.fromisoformat(d["date"])).days
         if old > _STALE_DAYS:
-            # ⚠️ 오래된 값을 '지금 주가' 처럼 말하면 거짓말이 된다. 날짜를 앞세운다.
-            return nm, ("%s · 마지막으로 저장된 건 %s 자료입니다 (%d일 전).\n"
+            # ⚠️ 프롬프트에 적어도 LLM 이 흘린다 — 코스피 답에서 "지금 값이
+            #    아니다" 가 빠지고 "저희가 보유한 최신 자료입니다" 로 바뀌었다.
+            #    2~3문장 제한에 밀린다. **코드가 답 뒤에 붙여 보장한다.**
+            notes.append("%s는 저장된 게 %s 자료뿐이에요. 지금 값은 "
+                         "종목별 탭에서 검색하면 그 자리에서 받아옵니다."
+                         % (nm, d["date"]))
+            # ⚠️ 오래된 값을 '지금 값' 처럼 말하면 거짓말이 된다. 날짜를 앞세우고
+            #    **지금 값을 어디서 보는지**까지 적는다. 둘 다 있어야 쓸모가 있다.
+            return nm, ("%s · 저희가 들고 있는 건 %s 자료뿐입니다 (%d일 전).\n"
                         "  그때 %s%s%s\n"
-                        "  지금 값은 종목별 탭에서 검색하면 받아옵니다."
+                        "  **지금 값이 아닙니다.** 지금 값은 종목별 탭에서 "
+                        "검색하면 그 자리에서 받아옵니다."
                         % (nm, d["date"], old,
                            format(d["close"], ",.2f") if d["close"] else "-", cur,
                            " (%+.2f%%)" % d["change_pct"] if d["change_pct"] else ""))
@@ -389,6 +411,7 @@ def build(conn, question, budget=BUDGET):
 
     q = question or ""
     pieces = []                       # (우선순위, 라벨, 본문)
+    notes = []                        # 답 뒤에 **반드시** 붙일 말 (LLM 이 흘려도)
 
     # ① 지표 — 질문에 걸린 것만. 걸리면 그 나라 것만.
     want = [k for k, words in _IND.items() if _has(q, words)]
@@ -413,7 +436,7 @@ def build(conn, question, budget=BUDGET):
 
     # ③ 종목
     for tk in _stocks(q):
-        p = _p_stock(conn, tk)
+        p = _p_stock(conn, tk, notes)
         if p:
             pieces.append((1,) + p)
 
@@ -438,7 +461,7 @@ def build(conn, question, budget=BUDGET):
 
     if not pieces:
         return {"matched": False, "context": "", "sources": [],
-                "tokens": 0, "dropped": 0}
+                "tokens": 0, "dropped": 0, "notes": []}
 
     # 예산 안에서 자른다. 우선순위 → 넣은 순서.
     pieces.sort(key=lambda p: p[0])
@@ -457,6 +480,7 @@ def build(conn, question, budget=BUDGET):
         "sources": [l for l, _ in kept],
         "tokens": used,
         "dropped": dropped,
+        "notes": notes,
     }
 
 

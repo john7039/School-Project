@@ -197,6 +197,12 @@ def ask(conn, question, history=None, prefer_local=False, ctx=None):
             answer = ("예측은 하지 않습니다. 이 사이트는 지나간 자료만 보여드려요. "
                       "'지금 어떤지' 로 물어보시면 수치를 알려드릴 수 있습니다.")
 
+    # ⚠️ 꼭 전해야 하는 말은 코드가 붙인다. 프롬프트에 적어도 LLM 이 흘린다 —
+    #    "지금 값이 아닙니다" 가 빠지고 "보유한 최신 자료입니다" 로 바뀌었다.
+    for n in ctx.get("notes") or []:
+        if n not in answer:
+            answer += "\n\n" + n
+
     # ⚠️ used 는 LLM 이 쓴 것이라 믿지 않는다. 화면에 보여주는 '근거' 는
     #    우리가 실제로 넣은 것(ctx["sources"])이다. 지어낸 출처를 띄우면
     #    검증 장치가 아니라 또 하나의 거짓말이 된다.

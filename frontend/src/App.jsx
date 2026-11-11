@@ -264,7 +264,7 @@ function ArticlesTab() {
             placeholder="알고 싶은 단어 — 금리, 테슬라, 반도체…"
             value={q}
             onChange={e => setQ(e.target.value)}
-            onKeyDown={e => { if (e.key === 'Enter') run() }} />
+            onKeyDown={e => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) run() }} />
           <button className="search-btn" onClick={() => run()} disabled={busy}>
             {busy ? '찾는 중…' : '검색'}
           </button>
@@ -664,7 +664,7 @@ function StocksTab() {
                 placeholder="종목 이름이나 티커 — 엔비디아, TSLA, 코카콜라…"
                 value={q}
                 onChange={e => setQ(e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter') run() }} />
+                onKeyDown={e => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) run() }} />
               <button className="search-btn" onClick={() => run()} disabled={busy}>
                 {busy ? '찾는 중…' : '검색'}
               </button>
@@ -1570,7 +1570,10 @@ function ChatPanel({ onClose }) {
         <input ref={inRef} className="search-in" value={q}
           placeholder="물가, 금리, 환율, 오늘 기사…"
           onChange={e => setQ(e.target.value)}
-          onKeyDown={e => { if (e.key === 'Enter') send() }} />
+          /* ⚠️ 한글은 조합 중에 Enter 를 누르면 조합 확정(onChange)과 keydown 이
+             같이 일어난다. 그냥 보내면 보낸 뒤에 **마지막 글자가 다시 찍힌다.**
+             isComposing 이면 넘긴다 — 조합이 끝난 다음 Enter 가 또 온다. */
+          onKeyDown={e => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) send() }} />
         <button className="search-btn" onClick={() => send()} disabled={!!job}>
           {job ? '…' : '보내기'}
         </button>
