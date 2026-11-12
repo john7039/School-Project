@@ -1734,6 +1734,10 @@ const CSS = `
   .irow:hover { background:var(--s1h); }
   .irow:focus-visible { outline:none; box-shadow:inset 3px 0 0 #4ade80; }
   .irow.open { background:var(--s1h); border-bottom:none; }
+  /* 펼치면 바로 아래 패널이 같은 말을 한다. 줄에서는 숨긴다.
+     ⚠️ 지우지 않고 visibility 로 숨기는 이유 — 760px 이하에서는 .irt 가
+        display:none 이라, 패널 쪽을 지우면 좁은 화면에서 요약이 아예 사라진다. */
+  .irow.open .irt { visibility:hidden; }
   .irn { flex:0 0 118px; font-size:.86rem; font-weight:600; }
   .irv { flex:0 0 78px; text-align:right; font-size:1.02rem; font-weight:700;
          font-variant-numeric:tabular-nums; letter-spacing:-.01em; }
