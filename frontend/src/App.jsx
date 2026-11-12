@@ -1322,7 +1322,8 @@ function FxFold({ name, value, chg, pct, pts, note, open, onToggle, children }) 
     <>
       <button className={`irow${open ? ' open' : ''}`} onClick={onToggle} aria-expanded={open}>
         <span className="irn">{name}</span>
-        <span className="irv">{value.toFixed(2)}원</span>
+        <span className="irv wide">{value.toLocaleString('ko-KR', {
+          minimumFractionDigits: 2, maximumFractionDigits: 2 })}원</span>
         <span className={`irc fxchg ${up ? 'up' : chg < 0 ? 'down' : ''}`}>
           {up ? '+' : ''}{chg.toFixed(2)}원{pct != null && ` (${up ? '+' : ''}${pct.toFixed(2)}%)`}
         </span>
@@ -1833,7 +1834,9 @@ const CSS = `
   .irow.open .irt { visibility:hidden; }
   .irn { flex:0 0 118px; font-size:.86rem; font-weight:600; }
   .irv { flex:0 0 78px; text-align:right; font-size:1.02rem; font-weight:700;
-         font-variant-numeric:tabular-nums; letter-spacing:-.01em; }
+         font-variant-numeric:tabular-nums; letter-spacing:-.01em; white-space:nowrap; }
+  /* 환율은 '1,471.60원' 이라 지표(+3.7%)보다 자리가 더 든다 — 안 넓히면 줄이 쪼개진다 */
+  .irv.wide { flex:0 0 100px; }
   .irb { flex:0 0 88px; font-size:.75rem; color:#c9ced8; }
   /* 환율은 뱃지 대신 등락을 쓴다 — 자리가 조금 더 필요하다 */
   .irc { flex:0 0 128px; font-size:.75rem; }
