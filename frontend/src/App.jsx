@@ -1464,6 +1464,18 @@ function HomeTab({ onGo }) {
   const past = daily.slice(1, 4)
   const intra = ((fx || {}).intraday || {}).USDKRW || {}
 
+  // ⚠️ 한 번 걷어냈다가 되돌렸다. "탭바와 중복" 으로만 봤는데, 이 카드들은
+  //    **탭바가 못 하는 일**을 하고 있었다 — 탭 이름만 보고는 '종목별' 이
+  //    뭔지 모른다. 설명 한 줄이 그걸 알려준다.
+  //    원래 문제는 '더 보기' 가 아니라 **그 아래가 비어 있던 것**이었다.
+  const MORE = [
+    ['articles', '📰 지난 기사', '단어로 검색하면 AI 가 그 자리에서 골라 분석해요' +
+      (daily.length > 1 ? `. 지금까지 ${daily.length}건` : '')],
+    ['stocks', '📊 종목별', '이름·업종으로 찾기. 한국 주식과 코스피까지'],
+    ['market', '📈 경제지표', '3년 추이 그래프와 지표 설명. 한국 수출입도'],
+    ['fx', '💱 환율', '장중 움직임 그래프와 AI 양면 분석'],
+  ]
+
   return (
     <div className="panel">
       {sel && <Modal onClose={() => setSel(null)}><ArticleBody a={sel} /></Modal>}
@@ -1517,14 +1529,19 @@ function HomeTab({ onGo }) {
               </button>
             ))}
           </div>
-          <p className="chartcap">
-            단어로 찾아보려면{' '}
-            <button className="golink" onClick={() => onGo('articles')}>지난 기사 탭</button>
-            에서 검색하세요 — 없는 단어도 그 자리에서 받아와 분석합니다.
-            지금까지 {daily.length}건.
-          </p>
         </>
       )}
+
+      {/* 볼 것을 먼저, 갈 곳을 뒤에. */}
+      <div className="label">더 보기</div>
+      <div className="hmore">
+        {MORE.map(([key, name, desc]) => (
+          <button key={key} className="hmcard" onClick={() => onGo(key)}>
+            <div className="hmname">{name}</div>
+            <div className="hmdesc">{desc}</div>
+          </button>
+        ))}
+      </div>
     </div>
   )
 }
@@ -1843,8 +1860,13 @@ const CSS = `
   .hp:focus-visible { outline:2px solid #4ade80; outline-offset:2px; }
   .hpwhen { display:flex; align-items:center; gap:8px; font-size:.74rem; color:#8b93a1; }
   .hpt { font-size:.9rem; font-weight:600; line-height:1.5; }
-  .golink { background:none; border:none; padding:0; font:inherit; cursor:pointer;
-            color:#4ade80; font-weight:700; text-decoration:underline; }
+  .hmore { display:grid; grid-template-columns:repeat(auto-fit,minmax(320px,1fr)); gap:11px; }
+  .hmcard { background:var(--s1); border:1px solid var(--line); border-radius:12px; padding:14px 16px;
+            text-align:left; font:inherit; color:inherit; cursor:pointer; }
+  .hmcard:hover { border-color:#3a4257; background:var(--s1h); }
+  .hmcard:focus-visible { outline:2px solid #4ade80; outline-offset:2px; }
+  .hmname { font-size:.88rem; font-weight:700; margin-bottom:4px; }
+  .hmdesc { font-size:.76rem; color:#9ca3af; line-height:1.55; }
   .up { color:#4ade80; } .down { color:#f87171; }
 
   .chips { display:flex; gap:8px; overflow-x:auto; padding-bottom:6px; }
