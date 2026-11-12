@@ -1311,6 +1311,12 @@ function FxNow({ live }) {
 function FxTab() {
   const [fx, setFx] = useState(null)
   const [sel, setSel] = useState(null)
+  const [open, setOpen] = useState(() => new Set())
+  const toggle = (k) => setOpen(o => {
+    const n = new Set(o)
+    if (n.has(k)) n.delete(k); else n.add(k)
+    return n
+  })
   // 현재 시세가 5분마다 갱신되므로 화면도 주기적으로 다시 받아온다.
   // 새로고침을 눌러야 최신이 보이면 '실시간'이라고 할 수 없다.
   //
@@ -1342,8 +1348,32 @@ function FxTab() {
       <div className="label">지금 · 장중</div>
       <FxNow live={fx.live} />
       <FxDay d={(fx.intraday || {}).USDKRW} name="원/달러" unit="1달러를 사는 데 드는 원화" />
-      <FxDay d={(fx.intraday || {}).EURKRW} name="원/유로" unit="1유로를 사는 데 드는 원화" />
-      <FxTrend series={(fx.series || {}).USDKRW} name="원/달러" unit="1달러를 사는 데 드는 원화" />
+      {/* 아래 둘은 접어 둔다 — 자세한 이유는 FxFold 주석에. */}
+      <div className="ilist">
+        {(() => {
+          const e = (fx.intraday || {}).EURKRW
+          const su = [...((fx.series || {}).USDKRW || [])].reverse()
+          return (
+            <>
+              {e && <FxFold name="원/유로 장중" value={e.last} chg={e.chg} pct={e.pct}
+                pts={e.points} note="보조 지표 — 누르면 장중 그래프"
+                open={open.has('eur')} onToggle={() => toggle('eur')}>
+                <FxDay d={e} name="원/유로" unit="1유로를 사는 데 드는 원화" />
+              </FxFold>}
+              {su.length > 1 && <FxFold name={`원/달러 ${su.length}일`}
+                value={su[su.length - 1].rate}
+                chg={su[su.length - 1].rate - su[0].rate}
+                pct={su[0].rate ? (su[su.length - 1].rate - su[0].rate) / su[0].rate * 100 : null}
+                pts={su.map(x => ({ rate: x.rate }))}
+                note={`${su.length}일 전과 견준 흐름`}
+                open={open.has('trend')} onToggle={() => toggle('trend')}>
+                <FxTrend series={(fx.series || {}).USDKRW} name="원/달러"
+                  unit="1달러를 사는 데 드는 원화" />
+              </FxFold>}
+            </>
+          )
+        })()}
+      </div>
 
       <div className="seg" />
 
@@ -1778,6 +1808,9 @@ const CSS = `
   .irv { flex:0 0 78px; text-align:right; font-size:1.02rem; font-weight:700;
          font-variant-numeric:tabular-nums; letter-spacing:-.01em; }
   .irb { flex:0 0 88px; font-size:.75rem; color:#c9ced8; }
+  /* 환율은 뱃지 대신 등락을 쓴다 — 자리가 조금 더 필요하다 */
+  .irc { flex:0 0 128px; font-size:.75rem; }
+  .ipanel .daybox { background:none; border:none; padding:0; }
   .spk { flex:0 0 auto; width:150px; height:34px; }
   .irt { flex:1; min-width:0; font-size:.77rem; color:#9ca3af;
          white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
