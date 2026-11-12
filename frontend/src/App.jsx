@@ -1308,6 +1308,33 @@ function FxNow({ live }) {
   )
 }
 
+// 접히는 줄. 경제지표 탭의 IndRow 와 같은 모양이다 — 한 화면 안에서 두 가지
+// 접기 방식을 쓰면 배우는 게 두 번이 된다.
+//
+// ⚠️ 무엇을 접을지는 **화면이 이미 말하고 있었다** —
+//    원/달러 "USD · 한국 경제에 가장 큰 영향" / 원/유로 "EUR · 보조 지표".
+//    사람들이 환율 탭에 오는 건 원/달러를 보려는 것이다. 그건 펼친 채로 두고
+//    보조인 원/유로 장중과 원/달러 15일 추이만 접는다. 약 640px 이 줄어든다.
+function FxFold({ name, value, chg, pct, pts, note, open, onToggle, children }) {
+  if (!pts || pts.length < 2) return null
+  const up = chg > 0
+  return (
+    <>
+      <button className={`irow${open ? ' open' : ''}`} onClick={onToggle} aria-expanded={open}>
+        <span className="irn">{name}</span>
+        <span className="irv">{value.toFixed(2)}원</span>
+        <span className={`irc fxchg ${up ? 'up' : chg < 0 ? 'down' : ''}`}>
+          {up ? '+' : ''}{chg.toFixed(2)}원{pct != null && ` (${up ? '+' : ''}${pct.toFixed(2)}%)`}
+        </span>
+        <Spark pts={pts} color={dirColor(chg)} />
+        <span className="irt">{note}</span>
+        <span className="irx">{open ? '▾' : '▸'}</span>
+      </button>
+      {open && <div className="ipanel">{children}</div>}
+    </>
+  )
+}
+
 function FxTab() {
   const [fx, setFx] = useState(null)
   const [sel, setSel] = useState(null)
