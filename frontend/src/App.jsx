@@ -890,6 +890,14 @@ function RateGap({ items }) {
 function MarketTab() {
   const [items, setItems] = useState([])
   const [failed, setFailed] = useState(false)
+  // 처음엔 전부 접어 둔다. 한 번에 하나만 펼치면 비교가 안 되므로 여러 개를
+  // 동시에 펼칠 수 있게 Set 으로 들고 있는다.
+  const [open, setOpen] = useState(() => new Set())
+  const toggle = (k) => setOpen(o => {
+    const n = new Set(o)
+    if (n.has(k)) n.delete(k); else n.add(k)
+    return n
+  })
   useEffect(() => {
     fetch(`${API}/api/indicators`)
       .then(r => r.json())
@@ -900,24 +908,20 @@ function MarketTab() {
     <div className="panel">
       <p className="lead">물가, 금리, 일자리. 그리고 한국 수출입.</p>
       {failed && <p className="chartcap">지표를 불러오지 못했습니다.</p>}
-      {[['US', '🇺🇸 미국'], ['KR', '🇰🇷 한국']].map(([cc, title]) => {
-        const group = items.filter(d => d.country === cc)
-        if (!group.length) return null
-        return (
-          <div key={cc}>
-            <div className="clabel">{title}</div>
-            <div className="igrid">
-              {group.map(d => <IndCard key={d.name} d={d} />)}
-            </div>
-            {cc === 'KR' && (
-              <p className="chartcap">
-                원/달러 환율은 <b>환율 탭</b>에 있습니다 — 거기서는 5분마다 갱신되는
-                장중 움직임까지 봅니다. 같은 걸 두 군데 두지 않았습니다.
-              </p>
-            )}
-          </div>
-        )
-      })}
+      {/* 나라별로 칸을 나누지 않는다. 줄마다 국기가 있어서 구분되고,
+          나누면 "미국 물가와 한국 물가" 를 나란히 못 본다. */}
+      {items.length > 0 && (
+        <div className="ilist">
+          {items.map(d => {
+            const k = `${d.country}:${d.name}`
+            return <IndRow key={k} d={d} open={open.has(k)} onToggle={() => toggle(k)} />
+          })}
+        </div>
+      )}
+      <p className="chartcap">
+        줄을 누르면 3년 추이 그래프와 설명이 펼쳐집니다. 원/달러 환율은
+        <b> 환율 탭</b>에 있습니다 — 거기서는 5분마다 갱신되는 장중 움직임까지 봅니다.
+      </p>
       <p className="chartcap">
         🔴🔵 뱃지는 <b>그래프에 보이는 기간 중 어디쯤인지</b>만 나타냅니다 — 좋고 나쁨이 아닙니다.
         금리가 낮은 게 좋은지는 대출자냐 예금자냐에 따라 다르고, 실업률도 너무 낮으면
@@ -975,6 +979,57 @@ function Band({ b, dec, unit }) {
   )
 }
 
+// 축 없는 작은 선. **접힌 줄에서도 흐름이 보이게** 하는 것이 전부다.
+// 눈금도 라벨도 없다 — 그건 펼쳤을 때 큰 그래프가 한다.
+function Spark({ pts, color, w = 150, h = 34 }) {
+  const v = pts.slice(-36).map(p => p.rate)
+  if (v.length < 2) return null
+  const lo = Math.min(...v), hi = Math.max(...v)
+  const sp = (hi - lo) || 1
+  const d = v.map((x, i) =>
+    `${(i / (v.length - 1) * w).toFixed(1)},${(h - (x - lo) / sp * h).toFixed(1)}`).join(' ')
+  return (
+    <svg className="spk" viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" aria-hidden="true">
+      <polyline points={d} fill="none" stroke={color} strokeWidth="1.6"
+        vectorEffect="non-scaling-stroke" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
+// 접힌 한 줄. 누르면 아래로 지금까지 쓰던 카드 내용이 그대로 펼쳐진다.
+//
+// ⚠️ 왜 접나 — 카드 한 장이 490px 이고 지표가 8장이라 전체가 4,000px(화면
+//    5개분)이었다. **물가와 금리를 나란히 볼 수가 없었다.** 접으면 8장이
+//    450px 에 들어온다.
+// ⚠️ 2단으로 늘어놓는 방법도 있었는데 안 했다. 카드가 413px 이 되면
+//    AxisChart viewBox 가 600 이라 12px 눈금 글자가 8px 로 줄어 안 읽힌다
+//    (11-03 에 재본 값). 접기는 **그래프 크기를 안 건드린다.**
+function IndRow({ d, open, onToggle }) {
+  const pts = d.chart?.points || []
+  if (pts.length < 2) return null
+  const index = d.unit === 'index'
+  const dir = index ? Math.sign(d.headline?.value || 0) : 0
+  const bi = pts.length > 12 ? pts.length - 13 : 0
+  const chg = pts[pts.length - 1].rate - pts[bi].rate
+  const band = d.band && BAND[d.band.level]
+  return (
+    <>
+      <button className={`irow${open ? ' open' : ''}`} onClick={onToggle}
+        aria-expanded={open}>
+        <span className="irn">{d.country === 'US' ? '🇺🇸' : '🇰🇷'} {d.label}</span>
+        <span className={`irv${dir > 0 ? ' iup' : dir < 0 ? ' idown' : ''}`}>
+          {amount(d.headline, index)}
+        </span>
+        <span className="irb">{band ? `${band.dot} ${band.text}` : ''}</span>
+        <Spark pts={pts} color={dirColor(chg)} />
+        <span className="irt">{d.note}</span>
+        <span className="irx">{open ? '▾' : '▸'}</span>
+      </button>
+      {open && <div className="ipanel"><IndCard d={d} /></div>}
+    </>
+  )
+}
+
 function IndCard({ d }) {
   const pts = d.chart?.points || []
   if (pts.length < 2) return null
@@ -996,11 +1051,10 @@ function IndCard({ d }) {
   // 24.01 · 24.11 · 25.11 · 26.09 로 나왔다. 달력에서 1월·7월을 집는다.
   const ticks = pts.reduce((a, pt, i) =>
     (pt.t.endsWith('.01') || pt.t.endsWith('.07')) ? [...a, i] : a, [])
-  const dir = index ? Math.sign(d.headline?.value || 0) : 0
   return (
     <div className="icard">
+      {/* 이름·숫자는 접힌 줄에 이미 있다. 여기서는 줄에 안 들어간 것만 보여준다. */}
       <div className="ihead">
-        <span className="iname">{d.label}</span>
         <span className="iwhen">{d.month}{d.released && ` · ${d.released}`}</span>
       </div>
       {d.brief && <p className="ibrief">{d.brief}</p>}
@@ -1010,9 +1064,6 @@ function IndCard({ d }) {
           {d.tag && <span className="itag">{d.tag}</span>}
         </div>
       )}
-      <div className={`ibig${dir > 0 ? ' iup' : dir < 0 ? ' idown' : ''}`}>
-        {amount(d.headline, index)}
-      </div>
       <div className="isub">
         {index
           ? <span className="ipre">작년 같은 달 대비</span>
@@ -1671,6 +1722,37 @@ const CSS = `
   .panel { padding-top:16px; }
   .lead { color:#8b93a1; font-size:.84rem; margin:0 0 14px; line-height:1.5; }
   .label { font-size:.72rem; text-transform:uppercase; letter-spacing:.08em; color:#9ca3af; font-weight:700; margin:18px 0 10px; }
+
+  /* ── 지표 목록 (접히는 줄) ── */
+  /* 카드 한 장이 490px 이라 8장이면 4,000px(화면 5개분)이었다. 접으면 450px.
+     작은 그래프를 줄마다 붙여서 **접힌 채로도 흐름이 보이게** 한다. */
+  .ilist { background:var(--s1); border:1px solid var(--line); border-radius:13px; overflow:hidden; }
+  .irow { display:flex; align-items:center; gap:12px; width:100%; text-align:left;
+          background:none; border:none; border-bottom:1px solid #262c3a;
+          padding:11px 14px; font:inherit; color:inherit; cursor:pointer; }
+  .irow:last-child { border-bottom:none; }
+  .irow:hover { background:var(--s1h); }
+  .irow:focus-visible { outline:none; box-shadow:inset 3px 0 0 #4ade80; }
+  .irow.open { background:var(--s1h); border-bottom:none; }
+  .irn { flex:0 0 118px; font-size:.86rem; font-weight:600; }
+  .irv { flex:0 0 78px; text-align:right; font-size:1.02rem; font-weight:700;
+         font-variant-numeric:tabular-nums; letter-spacing:-.01em; }
+  .irb { flex:0 0 88px; font-size:.75rem; color:#c9ced8; }
+  .spk { flex:0 0 auto; width:150px; height:34px; }
+  .irt { flex:1; min-width:0; font-size:.77rem; color:#9ca3af;
+         white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .irx { flex:0 0 auto; color:#8b93a1; font-size:.8rem; }
+  .ipanel { padding:0 14px 6px; border-bottom:1px solid #262c3a; }
+  .ipanel:last-child { border-bottom:none; }
+  .ipanel .icard { background:none; border:none; padding:0; }
+  /* 좁아지면 덜 중요한 것부터 뺀다 — 한 줄 요약 → 작은 그래프 순 */
+  @media (max-width:760px) { .irt { display:none; } }
+  @media (max-width:560px) {
+    .spk { display:none; }
+    .irow { gap:9px; padding:11px 12px; }
+    .irn { flex:1 1 auto; }
+    .irb { flex:0 0 auto; font-size:.72rem; }
+  }
 
   /* ── 채팅 ── */
   /* 본문(840px)을 안 건드리는 쪽을 골랐다. 열면 오른쪽에서 덮고, 닫으면
