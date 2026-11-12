@@ -1417,13 +1417,15 @@ function FxTab() {
 //    두 번 걷어냈다(11-03 주가 카드, 11-05 한·미 영향 블록). 같은 기준으로
 //    여기는 '오늘' 만 둔다 — 지난 기사·그래프·검색은 탭이 맡고, 기사 탭에서는
 //    '오늘의 추천' 을 뺐다. 역할이 갈려야 중복이 아니다.
-function HomeStat({ name, big, band, sub, color }) {
+function HomeStat({ name, big, band, sub, color, pts, line }) {
   return (
     <div className="hcard">
       <div className="hname">{name}</div>
       <div className="hbig">{big}</div>
       {band && <div className="hband" style={color ? { color } : undefined}>{band}</div>}
       {sub && <div className="hsub">{sub}</div>}
+      {/* 숫자만 있을 때는 오른 건지 내린 건지 몰랐다. 한 줄만 붙인다. */}
+      {pts?.length > 1 && <Spark pts={pts} color={line} w={130} h={26} />}
     </div>
   )
 }
@@ -1459,13 +1461,8 @@ function HomeTab({ onGo }) {
     .map(([n, label]) => [label, items.find(x => x.country === 'US' && x.name === n)])
     .filter(([, d]) => d)
 
-  const MORE = [
-    ['articles', '📰 지난 기사', '단어로 검색하면 AI 가 그 자리에서 골라 분석해요' +
-      (daily.length > 1 ? `. 지난 분석 ${daily.length - 1}건` : '')],
-    ['stocks', '📊 종목별', '이름·업종으로 찾기. 한국 주식과 코스피까지'],
-    ['market', '📈 경제지표', '3년 추이 그래프와 지표 설명. 한국 수출입도'],
-    ['fx', '💱 환율', '장중 움직임 그래프와 AI 양면 분석'],
-  ]
+  const past = daily.slice(1, 4)
+  const intra = ((fx || {}).intraday || {}).USDKRW || {}
 
   return (
     <div className="panel">
@@ -1480,32 +1477,54 @@ function HomeTab({ onGo }) {
 
       <div className="label">지금 경제</div>
       <div className="hgrid">
-        {stats.map(([label, d]) => (
-          <HomeStat key={label} name={label}
-            big={(d.unit === 'index' && d.headline.value > 0 ? '+' : '') +
-                 d.headline.value.toFixed(d.headline.decimals) + d.headline.unit}
-            band={LV[d.band.level]}
-            sub={d.unit === 'index' ? '작년 같은 달 대비' : d.month} />
-        ))}
+        {stats.map(([label, d]) => {
+          const pts = d.chart?.points || []
+          const bi = pts.length > 12 ? pts.length - 13 : 0
+          return (
+            <HomeStat key={label} name={label}
+              big={(d.unit === 'index' && d.headline.value > 0 ? '+' : '') +
+                   d.headline.value.toFixed(d.headline.decimals) + d.headline.unit}
+              band={LV[d.band.level]}
+              sub={d.unit === 'index' ? '작년 같은 달 대비' : d.month}
+              pts={pts}
+              line={dirColor(pts.length > 1 ? pts[pts.length - 1].rate - pts[bi].rate : 0)} />
+          )
+        })}
         {usd && usd.rate != null && (
           <HomeStat name="원/달러"
             big={usd.rate.toLocaleString('ko-KR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             band={`${usd.chg >= 0 ? '▲' : '▼'} ${Math.abs(usd.chg).toFixed(2)}원 (${usd.pct >= 0 ? '+' : ''}${usd.pct.toFixed(2)}%)`}
             color={dirColor(usd.chg)}
-            sub={`${(usd.market_time || '').slice(11, 16)} 기준 · 5분마다 갱신`} />
+            sub={`${(usd.market_time || '').slice(11, 16)} 기준 · 장중`}
+            pts={intra.points || []} line={dirColor(usd.chg)} />
         )}
       </div>
       {!stats.length && !usd && <p className="lead">지표를 불러오는 중…</p>}
 
-      <div className="label">더 보기</div>
-      <div className="hmore">
-        {MORE.map(([key, name, desc]) => (
-          <button key={key} className="hmcard" onClick={() => onGo(key)}>
-            <div className="hmname">{name}</div>
-            <div className="hmdesc">{desc}</div>
-          </button>
-        ))}
-      </div>
+      {/* ⚠️ 여기 '더 보기' 카드 넷이 있었다 — 바로 위 탭바와 **똑같은 넷**이었다.
+          탭으로 가는 길은 탭바가 이미 하고 있다. 빈자리에는 **볼 것**을 넣는다. */}
+      {past.length > 0 && (
+        <>
+          <div className="label">지난 기사</div>
+          <div className="hpast">
+            {past.map(a => (
+              <button key={a.url} className="hp" onClick={() => setSel(a)}>
+                <span className="hpwhen">
+                  {a.date} · {a.source}
+                  <span className={`sent ${sentClass(a.sentiment)}`}>{sentText(a.sentiment)}</span>
+                </span>
+                <span className="hpt">{a.title_ko || a.title}</span>
+              </button>
+            ))}
+          </div>
+          <p className="chartcap">
+            단어로 찾아보려면{' '}
+            <button className="golink" onClick={() => onGo('articles')}>지난 기사 탭</button>
+            에서 검색하세요 — 없는 단어도 그 자리에서 받아와 분석합니다.
+            지금까지 {daily.length}건.
+          </p>
+        </>
+      )}
     </div>
   )
 }
@@ -1815,13 +1834,17 @@ const CSS = `
 
   /* ⚠️ 230px 이면 840px 안에 3개가 들어가서 네 번째(환율)만 혼자 다음 줄에
      남는다. 320px 으로 올리면 2×2 로 떨어진다. 좁은 화면에서는 1열이 된다. */
-  .hmore { display:grid; grid-template-columns:repeat(auto-fit,minmax(320px,1fr)); gap:11px; }
-  .hmcard { background:var(--s1); border:1px solid var(--line); border-radius:12px; padding:14px 16px;
-            text-align:left; font:inherit; color:inherit; cursor:pointer; }
-  .hmcard:hover { border-color:#3a4257; background:var(--s1h); }
-  .hmcard:focus-visible { outline:2px solid #4ade80; outline-offset:2px; }
-  .hmname { font-size:.88rem; font-weight:700; margin-bottom:4px; }
-  .hmdesc { font-size:.76rem; color:#9ca3af; line-height:1.55; }
+  .hcard .spk { width:100%; height:26px; margin-top:9px; display:block; }
+  .hpast { display:flex; flex-direction:column; gap:8px; }
+  .hp { display:flex; flex-direction:column; gap:4px; text-align:left; font:inherit; color:inherit;
+        background:var(--s1); border:1px solid var(--line); border-radius:12px;
+        padding:11px 14px; cursor:pointer; }
+  .hp:hover { background:var(--s1h); border-color:#3a4257; }
+  .hp:focus-visible { outline:2px solid #4ade80; outline-offset:2px; }
+  .hpwhen { display:flex; align-items:center; gap:8px; font-size:.74rem; color:#8b93a1; }
+  .hpt { font-size:.9rem; font-weight:600; line-height:1.5; }
+  .golink { background:none; border:none; padding:0; font:inherit; cursor:pointer;
+            color:#4ade80; font-weight:700; text-decoration:underline; }
   .up { color:#4ade80; } .down { color:#f87171; }
 
   .chips { display:flex; gap:8px; overflow-x:auto; padding-bottom:6px; }
