@@ -177,7 +177,14 @@ def generate_json(prompt, tries=3, timeout=300, prefer_local=False, wait_ok=True
                     continue
                 if 400 <= e.code < 500:
                     # 모델명이 틀렸거나 키가 잘못된 것. 재시도해도 같다.
-                    print(f"  Groq 설정 오류 {e.code} ({GROQ_MODEL}) — 로컬로 전환")
+                    # ⚠️ 본문을 같이 찍는다. 2026-11-13 까지는 코드만 찍어서, 매일 아침
+                    #    뜨던 400 이 실은 "프롬프트에 json 이란 단어가 없다" 였다는 걸
+                    #    한 달 넘게 몰랐다(translate_titles.py).
+                    try:
+                        why = e.read()[:200].decode("utf-8", "replace")
+                    except Exception:
+                        why = ""
+                    print(f"  Groq 설정 오류 {e.code} ({GROQ_MODEL}) — 로컬로 전환 · {why}")
                     # 설정이 틀린 것이라 다시 보내도 같다. 길게 쉬고 로컬로 간다.
                     # (2026-10-31 전까지 여기에 정의되지 않은 _COOLDOWN_SEC 이 있어서,
                     #  정작 로컬로 넘어가야 할 때 NameError 로 그냥 실패했다.

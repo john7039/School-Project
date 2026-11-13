@@ -4,12 +4,14 @@
 사용자는 한국어로 검색하는데, 영어 제목만 있으면 '금리' 를 쳐도 한 건도 안 걸린다.
 search_terms 사전이 그 빈틈을 메우지만, 사전에 없는 단어는 여전히 못 찾는다.
 
-중요 — title_ko 는 **검색용이고 화면에 보여주지 않는다.**
-로컬 모델(qwen2.5:7b, CPU)의 번역 품질이 들쭉날쭉하다. 실제로 시험해 보니
-"Stock Market Sell-Off" 가 "주식 시장 팔리기" 로 나오는 식이다.
-그래도 '주식 시장' 이라는 검색어는 걸리므로 검색 재현율은 분명히 올라간다.
-화면에는 영어 원제목을 그대로 보여주므로 어색한 번역이 사용자 눈에 띄지 않는다.
-이 전제가 깨지면(=화면에 title_ko 를 쓰기 시작하면) 품질 기준을 다시 잡아야 한다.
+처음에는 title_ko 를 **검색용으로만** 썼다. 로컬 모델(qwen2.5:7b, CPU)의 번역이
+들쭉날쭉해도("Stock Market Sell-Off" → "주식 시장 팔리기") 검색어는 걸리니까.
+
+⚠️ 그 전제는 2026-10-25 에 깨졌다 — AI 추천 기사 카드가 title_ko 를 제목으로
+   띄우기 시작했다(11-12 에 홈 화면도). 번역 쪽 기준은 그대로였고, 2026-11-13 에
+   "Jensen Huang" 이 37건 중 1건만 '젠슨 황' 이었다. 나머지는 제인슨 홀랜드 ·
+   진센 홀란 · 제너슨 화이트하우스… 매번 다르게 지어냈다. 회사도 '네비디아'.
+   그래서 **사람·회사 이름은 모델에게 맡기지 않는다** (NAMES 아래 설명).
 
 설계 — 중간에 끊겨도 괜찮게:
   · 한 건 번역할 때마다 바로 커밋한다. 죽어도 거기까지는 남는다.
@@ -37,6 +39,59 @@ CJK = re.compile(r"[一-鿿぀-ヿ]")
 ALLOWED = re.compile(r"^[가-힣ㄱ-ㆎ A-Za-z0-9\s"
                      r"&·,./:;%\-–—'\"“”‘’()\[\]+…?!$€£¥\\]*$")
 
+# 이름은 모델에게 맡기지 않는다 — 번역 **전에** 코드가 한글로 바꿔 넣고,
+# 번역 **후에** 그 한글이 그대로 남았는지 확인한다. 빠졌으면 저장하지 않는다
+# (NULL 로 두면 화면은 영어 원제를 보여준다. 틀린 이름보다 영어가 낫다).
+#
+# 프롬프트에 "Nvidia→엔비디아" 를 적어뒀는데도 '네비디아' 가 나왔다.
+# 프롬프트는 부탁이고 코드가 보장이다 — 채팅(chat.py)과 같은 원칙.
+#
+# 넣는 기준: 2026-11-13 기사 제목에서 실제로 센 횟수. 성(姓)만 바꾸는 것은
+# 다른 단어와 안 겹치는 것만 — "Jobs"(고용지표) · "Su"(319건, Surge 등) ·
+# "Cook" · "Wood" · "Lee" · "Son" 은 성만으로는 넣지 않는다.
+NAMES = {
+    # 사람 — 전체 이름
+    "Elon Musk": "일론 머스크", "Jensen Huang": "젠슨 황", "Jim Cramer": "짐 크레이머",
+    "Warren Buffett": "워런 버핏", "Cathie Wood": "캐시 우드", "Tim Cook": "팀 쿡",
+    "Steve Jobs": "스티브 잡스", "Mark Zuckerberg": "마크 저커버그",
+    "Satya Nadella": "사티아 나델라", "Lisa Su": "리사 수", "Sam Altman": "샘 올트먼",
+    "Jamie Dimon": "제이미 다이먼", "Tom Lee": "톰 리", "Michael Burry": "마이클 버리",
+    "Bill Ackman": "빌 애크먼", "Sundar Pichai": "순다르 피차이", "Andy Jassy": "앤디 재시",
+    "Jeff Bezos": "제프 베이조스", "Bill Gates": "빌 게이츠", "Ken Griffin": "켄 그리핀",
+    "Dan Ives": "댄 아이브스", "Jerome Powell": "제롬 파월", "Donald Trump": "도널드 트럼프",
+    "Scott Bessent": "스콧 베센트", "Kevin Warsh": "케빈 워시", "Kevin Hassett": "케빈 해싯",
+    "Masayoshi Son": "손정의", "Larry Fink": "래리 핑크", "Ray Dalio": "레이 달리오",
+    # 사람 — 성만 (위 전체 이름이 먼저 바뀐 뒤에 남은 것만 걸린다)
+    "Musk": "머스크", "Huang": "황", "Cramer": "크레이머", "Buffett": "버핏",
+    "Zuckerberg": "저커버그", "Nadella": "나델라", "Powell": "파월", "Trump": "트럼프",
+    "Bessent": "베센트", "Ackman": "애크먼", "Burry": "버리", "Bezos": "베이조스",
+    "Pichai": "피차이", "Jassy": "재시", "Altman": "올트먼", "Dimon": "다이먼",
+    # 회사·기관 — 원래 프롬프트 5번 규칙에 있던 것
+    "Nvidia": "엔비디아", "NVIDIA": "엔비디아", "Tesla": "테슬라", "Apple": "애플",
+    "Microsoft": "마이크로소프트", "Amazon": "아마존", "Alphabet": "구글", "Google": "구글",
+    "Meta Platforms": "메타", "Meta": "메타", "Federal Reserve": "연준", "Fed": "연준",
+    "Broadcom": "브로드컴", "Intel": "인텔", "Samsung": "삼성",
+}
+# 긴 것부터 — "Elon Musk" 가 "Musk" 보다 먼저 바뀌어야 '일론 머스크' 가 된다.
+_NAME_RE = re.compile(r"\b(%s)\b(?:['’]s\b)?" % "|".join(
+    re.escape(k) for k in sorted(NAMES, key=len, reverse=True)))
+
+
+def pin_names(title):
+    """제목 속 이름을 한글로 바꾼 제목과, 결과에 남아 있어야 할 한글 이름들.
+
+    "Nvidia's" 의 's 는 같이 떼어 '엔비디아의' 로 바꾼다. 그냥 두면 모델이
+    '엔비디아's' 를 그대로 옮기거나, 거기서 이름을 다시 쓰려 든다.
+    """
+    must = []
+
+    def sub(m):
+        ko = NAMES[m.group(1)]
+        must.append(ko)
+        return ko + ("의" if m.group(0) != m.group(1) else "")
+    return _NAME_RE.sub(sub, title), sorted(set(must))
+
+
 PROMPT = """영어 경제 뉴스 제목을 한국어로 번역하는 일이다.
 
 규칙:
@@ -44,31 +99,40 @@ PROMPT = """영어 경제 뉴스 제목을 한국어로 번역하는 일이다.
 2. 제목 전체를 끝까지 번역한다. 중간에 끊지 마라.
 3. 제목에 있는 내용만 옮긴다. 없는 말을 지어내지 마라.
 4. 맨 뒤의 출처 표기(- Reuters 등)는 영어 그대로 둔다.
-5. 회사·기관 이름은 한국에서 쓰는 이름으로: Tesla→테슬라, Nvidia→엔비디아,
-   Apple→애플, Microsoft→마이크로소프트, Amazon→아마존, Google/Alphabet→구글,
-   Meta→메타, Fed/Federal Reserve→연준. 티커(AAPL, TSLA)는 그대로 둔다.
+5. **제목에 이미 한글로 적힌 이름은 한 글자도 바꾸지 말고 그대로 쓴다.**
+   (예: '젠슨 황' 은 '젠슨 황' 그대로.) 티커(AAPL, TSLA)도 그대로 둔다.
+6. 한글로 안 바뀌어 있는 사람 이름은 영어 그대로 둔다. 한글로 옮기지 마라.
 
 예시 1
-입력: Tesla Stock Jumps After Q3 Deliveries Beat Estimates
-출력: {{"ko": "테슬라 주가, 3분기 인도량이 예상치를 웃돌며 급등"}}
+입력: 테슬라 Stock Jumps as 일론 머스크 Unveils Robotaxi
+출력: {{"ko": "일론 머스크가 로보택시 공개하자 테슬라 주가 급등"}}
 
 예시 2
 입력: Oil Prices Climb as OPEC+ Signals Output Cut - Reuters
 출력: {{"ko": "유가 상승, OPEC+ 감산 시사 - Reuters"}}
 
-이제 아래 제목을 번역하라.
+이제 아래 제목을 번역하라. 위 예시처럼 JSON 으로만 답한다.
 입력: {title}
 출력:"""
 
+# ⚠️ 위 "JSON" 이라는 단어를 지우지 마라. Groq 는 JSON 모드로 부를 때 프롬프트에
+#    'json' 이 한 번도 없으면 400 을 돌려준다. 2026-11-13 까지 이 프롬프트에 그 단어가
+#    없어서 **번역은 단 한 건도 Groq 를 거치지 못했다** — 매번 400 → llm.py 가 설정
+#    오류로 보고 Groq 를 15분 끔 → 전부 로컬 qwen 7B 가 번역했다.
 
-def clean(ko):
+
+def clean(ko, must=()):
     """저장해도 되는 번역이면 그대로, 아니면 None.
 
     돌려보내는 이유를 같이 알 수 있게 (값, 사유) 로 준다.
+    must — pin_names 가 넣은 한글 이름. 하나라도 빠졌으면 모델이 이름을
+    다시 쓴 것이다.
     """
     ko = (ko or "").strip()
     if not ko:
         return None, "빈 응답"
+    if any(n not in ko for n in must):
+        return None, "이름이 바뀜"
     if CJK.search(ko):
         return None, "중국어·한자 섞임"
     if not re.search(r"[가-힣]", ko):
@@ -78,11 +142,47 @@ def clean(ko):
     return ko, None
 
 
+def recheck(conn):
+    """이미 저장된 번역에 이름 검사를 다시 댄다. 걸리면 NULL 로 되돌린다.
+
+    매 실행마다 돈다 — NAMES 에 이름을 하나 더하면 지난 번역 중 그 이름을
+    틀린 것이 저절로 다시 번역된다. 2026-11-13 처음 돌렸을 때 19,266건 중 320건.
+
+    article_analysis(추천 기사 카드)는 뽑힐 때 news.title_ko 를 복사해 간다.
+    그래서 여기도 같이 비운다. 비어 있으면 화면은 영어 원제를 보여주고,
+    news 쪽이 다시 번역되면 sync_cards 가 채운다.
+    """
+    n = {}
+    for table in ("news", "article_analysis"):
+        bad = [(rid,) for rid, t, k in conn.execute(
+                   f"SELECT rowid, title, title_ko FROM {table} WHERE title_ko IS NOT NULL")
+               if not clean(k, pin_names(t or "")[1])[0]]
+        conn.executemany(f"UPDATE {table} SET title_ko=NULL WHERE rowid=?", bad)
+        n[table] = len(bad)
+    conn.commit()
+    return n
+
+
+def sync_cards(conn):
+    """추천 기사 카드의 빈 제목을 news 의 (검사를 통과한) 번역으로 채운다."""
+    cur = conn.execute(
+        "UPDATE article_analysis SET title_ko = (SELECT n.title_ko FROM news n "
+        "  WHERE n.url = article_analysis.url AND n.title_ko IS NOT NULL) "
+        "WHERE title_ko IS NULL AND EXISTS (SELECT 1 FROM news n "
+        "  WHERE n.url = article_analysis.url AND n.title_ko IS NOT NULL)")
+    conn.commit()
+    return cur.rowcount
+
+
 def main():
     limit = int(sys.argv[1]) if len(sys.argv) > 1 else None
 
     conn = sqlite3.connect(DB)
     conn.row_factory = sqlite3.Row
+    undone = recheck(conn)
+    if any(undone.values()):
+        print(f"이름 검사로 되돌림 — 기사 {undone['news']}건 · 추천 카드 "
+              f"{undone['article_analysis']}건 (다시 번역한다)")
     sql = ("SELECT id, title FROM news "
            "WHERE title_ko IS NULL AND title IS NOT NULL AND title <> '' "
            "ORDER BY published DESC")
@@ -95,6 +195,7 @@ def main():
         "SELECT COUNT(*) FROM news WHERE title_ko IS NULL").fetchone()[0]
     print(f"번역 대상 {total}건 (전체 미번역 {left}건)")
     if not total:
+        sync_cards(conn)
         conn.close()
         return
 
@@ -103,8 +204,9 @@ def main():
     started = time.time()
     for i, r in enumerate(rows, 1):
         try:
-            data = generate_json(PROMPT.format(title=r["title"]), tries=2, timeout=120)
-            ko, why = clean(data.get("ko"))
+            pinned, must = pin_names(r["title"])
+            data = generate_json(PROMPT.format(title=pinned), tries=2, timeout=120)
+            ko, why = clean(data.get("ko"), must)
         except Exception as e:
             ko, why = None, e.__class__.__name__
 
@@ -123,6 +225,9 @@ def main():
             print(f"  [{i}/{total}] 저장 {done} · 버림 {sum(rejected.values())} "
                   f"· 건당 {per:.1f}초 · 남은 시간 약 {eta:.0f}분", flush=True)
 
+    synced = sync_cards(conn)
+    if synced:
+        print(f"추천 카드 제목 {synced}건 채움")
     conn.close()
     print(f"끝 — {done}건 저장 ({done / total * 100:.0f}%), "
           f"{sum(rejected.values())}건 버림, 총 {(time.time() - started) / 60:.1f}분")
