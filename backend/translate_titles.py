@@ -22,6 +22,7 @@ search_terms 사전이 그 빈틈을 메우지만, 사전에 없는 단어는 �
   .venv/bin/python translate_titles.py            # 남은 것 전부
   .venv/bin/python translate_titles.py 50         # 50건만
 """
+import datetime
 import re
 import sqlite3
 import sys
@@ -145,17 +146,24 @@ def clean(ko, must=()):
 def recheck(conn):
     """이미 저장된 번역에 이름 검사를 다시 댄다. 걸리면 NULL 로 되돌린다.
 
-    매 실행마다 돈다 — NAMES 에 이름을 하나 더하면 지난 번역 중 그 이름을
-    틀린 것이 저절로 다시 번역된다. 2026-11-13 처음 돌렸을 때 19,266건 중 320건.
+    **오늘 것만** 본다 — 오늘 수집한 기사와 오늘의 추천 카드. 2026-11-13 처음엔
+    전체에 댔다가(19,266건 중 320건) 지난 기사까지 다시 번역할 필요는 없다고 봐서
+    좁혔다. 화면에 나가는 건 오늘 카드이고, 지난 기사 번역은 검색용이다.
 
     article_analysis(추천 기사 카드)는 뽑힐 때 news.title_ko 를 복사해 간다.
     그래서 여기도 같이 비운다. 비어 있으면 화면은 영어 원제를 보여주고,
     news 쪽이 다시 번역되면 sync_cards 가 채운다.
     """
+    kst = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=9))).date()
+    where = {
+        "news": ("published >= ?", kst.strftime("%Y%m%d")),
+        "article_analysis": ("url IN (SELECT url FROM daily WHERE date = ?)", kst.isoformat()),
+    }
     n = {}
-    for table in ("news", "article_analysis"):
+    for table, (cond, arg) in where.items():
         bad = [(rid,) for rid, t, k in conn.execute(
-                   f"SELECT rowid, title, title_ko FROM {table} WHERE title_ko IS NOT NULL")
+                   f"SELECT rowid, title, title_ko FROM {table} "
+                   f"WHERE title_ko IS NOT NULL AND {cond}", (arg,))
                if not clean(k, pin_names(t or "")[1])[0]]
         conn.executemany(f"UPDATE {table} SET title_ko=NULL WHERE rowid=?", bad)
         n[table] = len(bad)
