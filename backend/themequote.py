@@ -22,18 +22,11 @@ import time
 import themes as TH
 import tickers as TK
 from korean import with_josa
+from stockquote import _num   # yfinance 값 → 숫자 (NaN·None 거름). 같은 함수를 두 벌 두지 않는다
 
 TTL = 60
 _CACHE = {}
 _LOCK = threading.Lock()
-
-
-def _num(v):
-    try:
-        f = float(v)
-    except (TypeError, ValueError):
-        return None
-    return None if f != f else f
 
 
 def _is_kr(sym):

@@ -15,7 +15,6 @@
    LLM 이 하는 일은 그걸 문장으로 엮는 것뿐이다.
 """
 
-import json
 import re
 
 import chat_context

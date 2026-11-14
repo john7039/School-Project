@@ -18,7 +18,6 @@ _BACKEND = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
 _sys.path.insert(0, _BACKEND)
 _os.chdir(_BACKEND)
 
-import json
 import sqlite3
 
 conn = sqlite3.connect("econ.db")

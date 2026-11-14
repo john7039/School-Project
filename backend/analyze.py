@@ -9,7 +9,6 @@
   explain — 고른 그 기사 하나만 주고 설명 생성. 제목과 설명이 어긋나지 않는다.
   impacts — 어느 기업이 왜 긍정/부정인지. 설명과 섞으면 감정이 뭉개진다.
 """
-import json
 import re
 
 from llm import generate_json

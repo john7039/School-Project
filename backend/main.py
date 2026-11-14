@@ -29,13 +29,6 @@ def get_db():
     conn.row_factory = sqlite3.Row
     return conn
 
-@app.get("/api/prices")
-def list_prices():
-    conn = get_db()
-    rows = conn.execute("SELECT * FROM prices ORDER BY date DESC LIMIT 100").fetchall()
-    conn.close()
-    return [dict(r) for r in rows]
-
 @app.get("/api/indicators")
 def list_indicators():
     """지표를 사람이 읽는 꼴로 — 단위 규칙은 indicators.py 에 있다.
@@ -49,82 +42,6 @@ def list_indicators():
     out = indicators.build(conn)
     conn.close()
     return out
-
-def pct_change(conn, ticker, start_date, days, window=7):
-    """발표일(start_date) 직후 거래일 종가 → days 거래일 뒤 종가의 등락률(%).
-
-    발표일이 주말·공휴일이면 다음 거래일이 기준일이 된다(정상).
-    다만 기준일이 발표일에서 window 일 넘게 떨어져 있으면 그 발표는 주가
-    데이터 범위 밖이라는 뜻이라 None 을 돌려준다. 이 가드가 없던 동안에는
-    범위 밖 발표가 조용히 '보유한 첫 행'을 집어와, 서로 다른 발표 21건이
-    모두 같은 하루(2024-09-16)로 뭉개져 통계가 틀렸다.
-    """
-    rows = conn.execute(
-        "SELECT date, close FROM prices WHERE ticker=? AND date>=? ORDER BY date ASC LIMIT ?",
-        (ticker, start_date, days + 1)
-    ).fetchall()
-    if len(rows) < days + 1:
-        return None
-    gap = (datetime.date.fromisoformat(rows[0]["date"])
-           - datetime.date.fromisoformat(start_date)).days
-    if gap > window:
-        return None
-    base = rows[0]["close"]
-    after = rows[days]["close"]
-    if not base or after is None:   # 미완성 봉 등으로 close 가 비어 있는 행 방어
-        return None
-    return round((after - base) / base * 100, 2)
-
-@app.get("/api/analysis")
-def analysis():
-    conn = get_db()
-    # 미국 지표 발표일 → 미국 주가 반응이다. 한국 수출·수입 발표일을 넣으면
-    # 의미 없는 통계가 된다 (11-03 에 수출·수입을 넣은 뒤로 섞여 있었다).
-    indicators = conn.execute(
-        "SELECT DISTINCT name FROM indicators WHERE country='US'").fetchall()
-    tickers = [r["ticker"] for r in conn.execute("SELECT DISTINCT ticker FROM prices").fetchall()]
-    result = []
-    for ind in indicators:
-        name = ind["name"]
-        # 기준월(date)이 아니라 FRED 실제 발표일(release_date)로 반응을 측정한다.
-        # 예: 2026-09 CPI 는 2026-10-14 발표 → 10/14 기준으로 봐야 '발표 반응'이다.
-        releases = conn.execute(
-            "SELECT COALESCE(release_date, date) d FROM indicators "
-            "WHERE country='US' AND name=? AND release_date IS NOT NULL "
-            "AND release_date<>'' ORDER BY d ASC", (name,)).fetchall()
-        dates = [r["d"] for r in releases]
-        per_ticker = []
-        for ticker in tickers:
-            for days in (1, 5):
-                changes = [pct_change(conn, ticker, d, days) for d in dates]
-                changes = [c for c in changes if c is not None]
-                if not changes:
-                    continue
-                avg = round(sum(changes) / len(changes), 2)
-                up = sum(1 for c in changes if c > 0)
-                per_ticker.append({
-                    "ticker": ticker,
-                    "days": days,
-                    "avg_pct": avg,
-                    "up": up,
-                    "total": len(changes),
-                    "latest_pct": changes[-1],
-                })
-        result.append({
-            "indicator": name,
-            "release_count": len(dates),            # 발표일을 아는 건수
-            "window": [dates[0], dates[-1]] if dates else None,
-            "reactions": per_ticker,                # 각 항목의 total = 실제 집계된 발표 수
-        })
-    conn.close()
-    return result
-
-@app.get("/api/news")
-def list_news():
-    conn = get_db()
-    rows = conn.execute("SELECT title, summary, source, published, sentiment, tickers, url FROM news ORDER BY published DESC LIMIT 30").fetchall()
-    conn.close()
-    return [dict(r) for r in rows]
 
 # 한국어에는 띄어쓰기 경계가 없어서 부분 일치로 두면 엉뚱한 데 걸린다.
 # 실제로 '인텔' 이 번역 제목의 "슈퍼 인텔리전스" 에 걸렸다. '비자'⊂'비자금',
@@ -579,31 +496,6 @@ def list_daily():
         out.append(d)
     return out
 
-@app.get("/api/company/{ticker}")
-def company(ticker: str):
-    conn = get_db()
-    try:
-        rows = conn.execute(
-            "SELECT ticker, date, close, change_pct, volume, news_json, ai_summary "
-            "FROM company_daily WHERE ticker=? ORDER BY date DESC",
-            (ticker.upper(),)
-        ).fetchall()
-    except sqlite3.OperationalError:
-        conn.close()
-        return []
-    conn.close()
-    out = []
-    for r in rows:
-        d = dict(r)
-        raw = d.pop("news_json", None)
-        try:
-            d["news"] = json.loads(raw) if raw else []
-        except (ValueError, TypeError):
-            d["news"] = []
-        out.append(d)
-    return out
-
-
 # ───────────────────────── 종목 검색 ─────────────────────────
 #
 # 단어 검색(/api/news/search + /api/news/pick)과 같은 쌍으로 나눠 둔다.
@@ -650,13 +542,6 @@ def theme_find(q: str = "", key: str = ""):
         return {"status": "failed", "query": q, "key": k,
                 "name": TH.get(k)["name"], "chips": TH.chips()}
     return {"status": "ready", "query": q, "chips": TH.chips(), **data}
-
-
-@app.get("/api/theme/list")
-def theme_list():
-    """칩 목록만. 화면이 처음 뜰 때 쓴다."""
-    import themes as TH
-    return {"chips": TH.chips()}
 
 
 @app.get("/api/stock/find")
