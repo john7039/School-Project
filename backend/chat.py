@@ -94,6 +94,17 @@ def _drop_forecast(answer):
     return " ".join(kept)
 
 
+# 근거에는 "+0.71%p" 로 넣었는데 LLM 이 "0.71 percentage point" 로 풀어 쓴다.
+# 2026-11-13 시연 질문 "한·미 금리 차이는?" 에서 실제로 나왔다.
+# 단위는 근거에 적힌 그대로 돌려놓는다.
+_PP = re.compile(r"\s*(?:percentage|percent)\s*points?|\s*퍼센트\s*포인트",
+                 re.IGNORECASE)
+
+
+def _fix_units(answer):
+    return _PP.sub("%p", answer)
+
+
 def _guard(q):
     w = ""
     if any(k in q for k in _ADVICE):
@@ -189,6 +200,7 @@ def ask(conn, question, history=None, prefer_local=False, ctx=None):
     if not answer:
         return {"status": "error", "answer": "", "sources": ctx["sources"],
                 "message": "답이 비어 있습니다", "tokens": ctx["tokens"]}
+    answer = _fix_units(answer)
 
     if any(k in q for k in _FUTURE):
         cut = _drop_forecast(answer)
