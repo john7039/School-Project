@@ -1,0 +1,12 @@
+[Unit]
+Description=환율 현재 시세 5분마다
+
+[Timer]
+OnCalendar=*:0/5
+# 꺼져 있던 동안 밀린 실행을 몰아서 하지 않는다 — 현재 시세는 지나간 것을
+# 따라잡을 이유가 없다. 다음 정각 5분에 받으면 된다.
+Persistent=false
+AccuracySec=30s
+
+[Install]
+WantedBy=timers.target

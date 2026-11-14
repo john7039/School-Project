@@ -1,0 +1,13 @@
+[Unit]
+Description=Run econ FX freshness check every 15 minutes
+
+[Timer]
+# 수집은 5분마다 돈다. 15분마다 보면 '멈춤'을 30~45분 안에 알아챈다.
+# 더 자주 볼 이유가 없다 — 임계값이 30분이라 결과가 안 달라진다.
+OnBootSec=5min
+OnUnitActiveSec=15min
+# 다른 타이머와 같은 초에 몰리지 않게
+RandomizedDelaySec=30
+
+[Install]
+WantedBy=timers.target

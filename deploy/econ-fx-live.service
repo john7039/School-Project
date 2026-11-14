@@ -1,0 +1,11 @@
+[Unit]
+Description=환율 현재 시세 갱신 (fx_live)
+# OnFailure 를 걸지 않는다 — 5분마다 도는 유닛이라 일시적 네트워크 실패마다
+# 알림이 가면 하루 수백 통이 된다. "숫자가 멈춘 것"은 신선도(market_time)로
+# 따로 감시한다. 받아오기 실패 자체는 다음 5분에 복구되는 것이 정상이다.
+
+[Service]
+Type=oneshot
+User=miniserver
+WorkingDirectory=/home/miniserver/School-Project/backend
+ExecStart=-/home/miniserver/School-Project/backend/.venv/bin/python collect_fx_live.py
