@@ -11,10 +11,19 @@ User=miniserver
 WorkingDirectory=/home/miniserver/School-Project/backend
 ExecStart=-/home/miniserver/School-Project/backend/.venv/bin/python collect.py
 ExecStart=-/home/miniserver/School-Project/backend/.venv/bin/python collect_news.py
-ExecStart=-/home/miniserver/School-Project/backend/.venv/bin/python translate_titles.py 200
 ExecStart=-/home/miniserver/School-Project/backend/.venv/bin/python curate.py
 ExecStart=-/home/miniserver/School-Project/backend/.venv/bin/python company_curate.py
 ExecStart=-/home/miniserver/School-Project/backend/.venv/bin/python search_warm.py
+
+# 번역은 분석 **뒤에** 돈다. Groq 하루 한도를 화면에 나가는 분석이 먼저 쓰고,
+# 번역은 남은 한도로 돌다가 다 쓰면 로컬로 넘어간다.
+# 2026-11-14: 번역이 앞에 있을 때 200건이 한도를 다 써서 분석 16건 중 7건이
+# 로컬로 밀렸다. 번역을 로컬 먼저로 바꿔봤지만 로컬은 숫자를 틀렸다
+# ($1.4 Trillion → 1400억 달러). 그래서 순서를 바꾼다.
+# 분석의 검색은 번역 없이도 된다 — search_warm 의 검색어 16개는 전부
+# search_terms 사전에 영어 표현이 있다. 오늘 카드의 빈 한국어 제목은
+# 번역 끝에 sync_cards 가 채운다.
+ExecStart=-/home/miniserver/School-Project/backend/.venv/bin/python translate_titles.py 200
 
 # 3주 지난 뉴스 원문을 지운다. 시계열(prices/fx/indicators)과 분석 결과는
 # 건드리지 않는다. 하이픈을 붙인다 — 정리가 실패해도 아래 리포트는 나가야
