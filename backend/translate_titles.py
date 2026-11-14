@@ -36,6 +36,7 @@ DB = "econ.db"
 # 수집한 기사에는 한자가 한 글자도 없으므로(3,802건 확인), 번역 결과에
 # 한자가 보이면 그건 모델이 샌 것이다. 저장하지 않고 버린다.
 CJK = re.compile(r"[一-鿿぀-ヿ]")
+HANGUL = re.compile(r"[가-힣]")
 # 글자가 깨져 들어오는 경우(예: "이㎞미") 를 걸러내기 위한 허용 문자 집합
 ALLOWED = re.compile(r"^[가-힣ㄱ-ㆎ A-Za-z0-9\s"
                      r"&·,./:;%\-–—'\"“”‘’()\[\]+…?!$€£¥\\®™|]*$")
@@ -145,6 +146,36 @@ def clean(ko, must=()):
     return ko, None
 
 
+# 번역은 최근에 들어온 기사만 한다. 지난 기사는 그대로 둔다.
+# 2026-11-14: 밀린 미번역이 6,000건을 넘어서 번역이 매일 200건 상한을 꽉 채워
+# Groq 를 불렀고, 하루 토큰 한도가 아침에 바닥났다(분석·채팅까지 로컬로 밀림).
+# 지난 기사 번역은 쓸 데가 거의 없다 — 30일이면 prune_news 가 지우고, 화면에
+# 나가는 건 오늘 카드뿐이고, 검색은 search_terms 사전으로 번역 없이도 걸린다.
+# 2일인 이유 — 07:00 배치가 받는 Finnhub 기사는 전날 것이다. 하루로 자르면 빠진다.
+RECENT_DAYS = 2
+
+
+def _since():
+    kst = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=9)))
+    return (kst - datetime.timedelta(days=RECENT_DAYS)).strftime("%Y%m%d")
+
+
+def keep_korean(conn):
+    """원제가 이미 한국어인 기사는 그대로 title_ko 에 넣는다. LLM 을 부르지 않는다.
+
+    rss_search 는 넣을 때부터 title_ko = title 로 넣지만, 비어 있으면 아래
+    번역이 한국어를 한국어로 "번역" 하느라 Groq 를 쓴다 — 11-14 에 번역 대상
+    200건 중 164건이 이랬다(11-13 재검사가 한자 '美' '中' 때문에 지운 것들).
+    """
+    rows = [(t, rid) for rid, t in conn.execute(
+                "SELECT id, title FROM news WHERE title_ko IS NULL AND title <> '' "
+                "AND published >= ?", (_since(),))
+            if HANGUL.search(t or "")]
+    conn.executemany("UPDATE news SET title_ko = ? WHERE id = ?", rows)
+    conn.commit()
+    return len(rows)
+
+
 def recheck(conn):
     """이미 저장된 번역에 이름 검사를 다시 댄다. 걸리면 NULL 로 되돌린다.
 
@@ -166,7 +197,10 @@ def recheck(conn):
         bad = [(rid,) for rid, t, k in conn.execute(
                    f"SELECT rowid, title, title_ko FROM {table} "
                    f"WHERE title_ko IS NOT NULL AND {cond}", (arg,))
-               if not clean(k, pin_names(t or "")[1])[0]]
+               # 원제가 이미 한국어면(title_ko == title) 번역한 적이 없다 — 검사하지
+               # 않는다. 2026-11-13 에 이걸 빼먹어서, 한국어 기사 3,960건이
+               # '美' '中' 같은 한자 때문에 "중국어 섞임" 으로 지워졌다.
+               if k != t and not clean(k, pin_names(t or "")[1])[0]]
         conn.executemany(f"UPDATE {table} SET title_ko=NULL WHERE rowid=?", bad)
         n[table] = len(bad)
     conn.commit()
@@ -189,16 +223,19 @@ def main():
 
     conn = sqlite3.connect(DB)
     conn.row_factory = sqlite3.Row
+    kept = keep_korean(conn)
+    if kept:
+        print(f"원제가 한국어 — 그대로 둠 {kept}건 (번역하지 않는다)")
     undone = recheck(conn)
     if any(undone.values()):
         print(f"이름 검사로 되돌림 — 기사 {undone['news']}건 · 추천 카드 "
               f"{undone['article_analysis']}건 (다시 번역한다)")
     sql = ("SELECT id, title FROM news "
            "WHERE title_ko IS NULL AND title IS NOT NULL AND title <> '' "
-           "ORDER BY published DESC")
+           "AND published >= ? ORDER BY published DESC")
     if limit:
         sql += f" LIMIT {limit}"
-    rows = conn.execute(sql).fetchall()
+    rows = conn.execute(sql, (_since(),)).fetchall()
 
     total = len(rows)
     left = conn.execute(
