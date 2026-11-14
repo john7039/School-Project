@@ -28,7 +28,7 @@ load_dotenv()
 GROQ_KEY = os.environ.get("GROQ_API_KEY", "").strip()
 GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 # 모델은 .env 에서 바꿀 수 있게 한다. 제공처가 모델을 없애는 일이 있어서,
-# 코드를 고치지 않고 갈아탈 수 있어야 한다. check_groq.py 로 목록을 볼 수 있다.
+# 코드를 고치지 않고 갈아탈 수 있어야 한다. scripts/check_groq.py 로 목록을 볼 수 있다.
 GROQ_MODEL = os.environ.get("GROQ_MODEL", "openai/gpt-oss-20b").strip()
 
 # ── 로컬 (Ollama) ──

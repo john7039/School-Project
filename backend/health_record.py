@@ -15,7 +15,7 @@
 호출하는 쪽 —
   healthcheck.sh 가 마지막에 부른다. 여기서 실패해도 헬스체크의 종료 코드는
   바꾸지 않는다. DB 기록이 안 됐다고 "서버에 문제 있음" 알림이 가면 안 된다.
-  대신 빠진 날은 uptime_stats.py 가 '기록 없음' 으로 드러낸다.
+  대신 빠진 날은 scripts/uptime_stats.py 가 '기록 없음' 으로 드러낸다.
 """
 import datetime
 import sqlite3

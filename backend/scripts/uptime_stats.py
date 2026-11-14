@@ -1,8 +1,8 @@
 """운영 기록을 숫자로 — 점검 통과율과 문제가 있었던 날.
 
 사용법:
-  .venv/bin/python uptime_stats.py          전체 기간
-  .venv/bin/python uptime_stats.py 30       최근 30일
+  .venv/bin/python scripts/uptime_stats.py          전체 기간
+  .venv/bin/python scripts/uptime_stats.py 30       최근 30일
 
 무엇을 재는가 —
   health_log 는 하루 한 줄이다. 그래서 이 값은 **아침 점검을 통과한 날의
@@ -13,6 +13,14 @@
   헬스체크가 아예 안 돈 날은 health_log 에 줄이 없다. 통과도 실패도 아닌
   '모름' 이다. 이걸 통과로 쳐 버리면 숫자가 거짓말을 한다.
 """
+
+# scripts/ 로 옮겼다(2026-11-14). backend/ 의 모듈과 econ.db 를 그대로 쓰도록
+# 어디서 실행하든 backend/ 를 기준으로 돈다.
+import os as _os, sys as _sys
+_BACKEND = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
+_sys.path.insert(0, _BACKEND)
+_os.chdir(_BACKEND)
+
 import datetime
 import sqlite3
 import sys

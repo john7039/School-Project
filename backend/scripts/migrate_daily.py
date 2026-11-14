@@ -10,6 +10,14 @@ article_analysis 한 군데에 있다. 기존 컬럼은 지우지 않는다 — 
 impacts 는 비워 둔다. 옛 기사들은 기업별 영향을 만든 적이 없다.
 redo_daily.py 가 나중에 채운다.
 """
+
+# scripts/ 로 옮겼다(2026-11-14). backend/ 의 모듈과 econ.db 를 그대로 쓰도록
+# 어디서 실행하든 backend/ 를 기준으로 돈다.
+import os as _os, sys as _sys
+_BACKEND = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
+_sys.path.insert(0, _BACKEND)
+_os.chdir(_BACKEND)
+
 import json
 import sqlite3
 

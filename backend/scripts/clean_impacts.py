@@ -4,9 +4,17 @@
 언론사 제외(Usa Today), 이름 통일(Apple→애플) 같은 것들이다. 이런 건
 글자 처리라 다시 생성할 필요가 없다. 저장된 JSON 만 다듬으면 된다.
 
-사용법:  .venv/bin/python clean_impacts.py [--apply]
+사용법:  .venv/bin/python scripts/clean_impacts.py [--apply]
          --apply 없으면 무엇이 바뀌는지 보여주기만 한다.
 """
+
+# scripts/ 로 옮겼다(2026-11-14). backend/ 의 모듈과 econ.db 를 그대로 쓰도록
+# 어디서 실행하든 backend/ 를 기준으로 돈다.
+import os as _os, sys as _sys
+_BACKEND = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
+_sys.path.insert(0, _BACKEND)
+_os.chdir(_BACKEND)
+
 import json
 import sqlite3
 import sys

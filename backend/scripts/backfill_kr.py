@@ -24,6 +24,13 @@
   월평균 환산 기준으로 들어맞는다. **데이터가 맞았고 내 기억이 낡았다.**
 """
 
+# scripts/ 로 옮겼다(2026-11-14). backend/ 의 모듈과 econ.db 를 그대로 쓰도록
+# 어디서 실행하든 backend/ 를 기준으로 돈다.
+import os as _os, sys as _sys
+_BACKEND = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
+_sys.path.insert(0, _BACKEND)
+_os.chdir(_BACKEND)
+
 import os
 import sqlite3
 import sys
@@ -46,7 +53,7 @@ def fred_key():
     key = os.environ.get("FRED_API_KEY")
     if key:
         return key
-    here = os.path.dirname(os.path.abspath(__file__))
+    here = _BACKEND
     with open(os.path.join(here, ".env"), encoding="utf-8") as f:
         for line in f:
             if line.startswith("FRED_API_KEY="):

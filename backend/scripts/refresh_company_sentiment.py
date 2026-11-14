@@ -1,5 +1,13 @@
 """기존 company_daily 행을 삭제하지 않고 제자리에서 갱신.
 최근 날짜의 ai_summary + 뉴스별 감정(Ollama 추론)을 다시 채운다."""
+
+# scripts/ 로 옮겼다(2026-11-14). backend/ 의 모듈과 econ.db 를 그대로 쓰도록
+# 어디서 실행하든 backend/ 를 기준으로 돈다.
+import os as _os, sys as _sys
+_BACKEND = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
+_sys.path.insert(0, _BACKEND)
+_os.chdir(_BACKEND)
+
 import sqlite3
 import json
 from llm import generate_json
