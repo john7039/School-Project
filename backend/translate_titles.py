@@ -120,6 +120,8 @@ PROMPT = """영어 경제 뉴스 제목을 한국어로 번역하는 일이다.
 #    'json' 이 한 번도 없으면 400 을 돌려준다. 2026-11-13 까지 이 프롬프트에 그 단어가
 #    없어서 **번역은 단 한 건도 Groq 를 거치지 못했다** — 매번 400 → llm.py 가 설정
 #    오류로 보고 Groq 를 15분 끔 → 전부 로컬 qwen 7B 가 번역했다.
+#    지금은 일부러 로컬을 먼저 쓴다(아래 main). 이 단어는 로컬이 죽었을 때
+#    Groq 로 넘어가는 길을 위해 남긴다.
 
 
 def clean(ko, must=()):
@@ -213,7 +215,12 @@ def main():
     for i, r in enumerate(rows, 1):
         try:
             pinned, must = pin_names(r["title"])
-            data = generate_json(PROMPT.format(title=pinned), tries=2, timeout=120)
+            # 로컬 먼저. Groq 하루 한도는 화면에 나가는 기사 분석 몫이다.
+            # 2026-11-14: Groq 로 번역 200건을 보냈더니 47분이 걸렸고(분당 한도
+            # 대기), 하루 토큰을 다 써서 기사 분석 16건 중 7건이 로컬로 밀렸다.
+            # 이름은 pin_names 가 미리 한글로 박아두므로 로컬도 이름을 못 바꾼다.
+            data = generate_json(PROMPT.format(title=pinned), tries=2, timeout=120,
+                                 prefer_local=True)
             ko, why = clean(data.get("ko"), must)
         except Exception as e:
             ko, why = None, e.__class__.__name__
