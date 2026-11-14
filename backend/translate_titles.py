@@ -1,4 +1,12 @@
-"""수집한 영어 기사 제목을 한국어로 번역해 news.title_ko 에 채운다.
+"""AI 가 고른 기사(추천 카드)의 영어 제목을 한국어로 번역한다.
+
+⚠️ 2026-11-14 부터 **고른 기사만** 번역한다. 그 전에는 수집한 영어 기사를 전부
+   (하루 120~175건) 번역했는데, 화면에 번역 제목이 나가는 곳은 추천 카드뿐이다
+   (홈 '오늘의 기사' · 기사 탭). 카드는 하루 12~16건, 그중 영어 원제는 5~6건.
+   전부 번역하던 때는 Groq 하루 토큰 한도를 아침에 다 써서 분석·채팅이 로컬로
+   밀렸다. 검색·채팅은 search_terms 사전과 Google 뉴스 한국어 기사로 찾는다.
+
+아래는 전부 번역하던 때의 설명이다(이름 고정·검사는 그대로 쓴다).
 
 왜 필요한가 — 기사는 Finnhub·Yahoo 에서 받아오므로 제목이 전부 영어다.
 사용자는 한국어로 검색하는데, 영어 제목만 있으면 '금리' 를 쳐도 한 건도 안 걸린다.
@@ -19,8 +27,8 @@ search_terms 사전이 그 빈틈을 메우지만, 사전에 없는 단어는 �
   · 최신 기사부터 한다. 끝까지 못 돌려도 검색에 자주 걸리는 쪽이 먼저 채워진다.
 
 사용법:
-  .venv/bin/python translate_titles.py            # 남은 것 전부
-  .venv/bin/python translate_titles.py 50         # 50건만
+  .venv/bin/python translate_titles.py            # 최근 카드 중 번역 없는 것 전부
+  .venv/bin/python translate_titles.py 5          # 5건만
 """
 import datetime
 import re
@@ -147,33 +155,25 @@ def clean(ko, must=()):
 
 
 # 번역은 최근에 들어온 기사만 한다. 지난 기사는 그대로 둔다.
-# 2026-11-14: 밀린 미번역이 6,000건을 넘어서 번역이 매일 200건 상한을 꽉 채워
-# Groq 를 불렀고, 하루 토큰 한도가 아침에 바닥났다(분석·채팅까지 로컬로 밀림).
-# 지난 기사 번역은 쓸 데가 거의 없다 — 30일이면 prune_news 가 지우고, 화면에
-# 나가는 건 오늘 카드뿐이고, 검색은 search_terms 사전으로 번역 없이도 걸린다.
-# 2일인 이유 — 07:00 배치가 받는 Finnhub 기사는 전날 것이다. 하루로 자르면 빠진다.
+# 최근 며칠 카드만 본다. 지난 카드는 그대로 둔다.
+# 2일인 이유 — created 는 UTC 라 07:00 KST 배치가 전날 날짜로 찍힌다.
 RECENT_DAYS = 2
 
 
-def _since():
-    kst = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=9)))
-    return (kst - datetime.timedelta(days=RECENT_DAYS)).strftime("%Y%m%d")
+def card_targets(conn):
+    """번역이 필요한 카드 — 최근 카드 중 title_ko 가 빈 것.
 
-
-def keep_korean(conn):
-    """원제가 이미 한국어인 기사는 그대로 title_ko 에 넣는다. LLM 을 부르지 않는다.
-
-    rss_search 는 넣을 때부터 title_ko = title 로 넣지만, 비어 있으면 아래
-    번역이 한국어를 한국어로 "번역" 하느라 Groq 를 쓴다 — 11-14 에 번역 대상
-    200건 중 164건이 이랬다(11-13 재검사가 한자 '美' '中' 때문에 지운 것들).
+    원제가 이미 한국어면(Google 뉴스 기사) LLM 을 부르지 않고 그대로 넣는다.
+    돌려주는 것은 번역해야 하는 영어 원제 카드만.
     """
-    rows = [(t, rid) for rid, t in conn.execute(
-                "SELECT id, title FROM news WHERE title_ko IS NULL AND title <> '' "
-                "AND published >= ?", (_since(),))
-            if HANGUL.search(t or "")]
-    conn.executemany("UPDATE news SET title_ko = ? WHERE id = ?", rows)
+    rows = conn.execute(
+        "SELECT rowid, url, title FROM article_analysis "
+        "WHERE title_ko IS NULL AND title IS NOT NULL AND title <> '' "
+        "AND created >= datetime('now', ?)", (f"-{RECENT_DAYS} days",)).fetchall()
+    ko = [(r["title"], r["rowid"]) for r in rows if HANGUL.search(r["title"])]
+    conn.executemany("UPDATE article_analysis SET title_ko = ? WHERE rowid = ?", ko)
     conn.commit()
-    return len(rows)
+    return [r for r in rows if not HANGUL.search(r["title"])], len(ko)
 
 
 def recheck(conn):
@@ -223,26 +223,19 @@ def main():
 
     conn = sqlite3.connect(DB)
     conn.row_factory = sqlite3.Row
-    kept = keep_korean(conn)
-    if kept:
-        print(f"원제가 한국어 — 그대로 둠 {kept}건 (번역하지 않는다)")
     undone = recheck(conn)
     if any(undone.values()):
         print(f"이름 검사로 되돌림 — 기사 {undone['news']}건 · 추천 카드 "
               f"{undone['article_analysis']}건 (다시 번역한다)")
-    sql = ("SELECT id, title FROM news "
-           "WHERE title_ko IS NULL AND title IS NOT NULL AND title <> '' "
-           "AND published >= ? ORDER BY published DESC")
+    # 같은 기사가 news 쪽에 이미 번역돼 있으면 그걸 먼저 쓴다 (LLM 안 부름)
+    synced = sync_cards(conn)
+    rows, kept = card_targets(conn)
     if limit:
-        sql += f" LIMIT {limit}"
-    rows = conn.execute(sql, (_since(),)).fetchall()
-
+        rows = rows[:limit]
     total = len(rows)
-    left = conn.execute(
-        "SELECT COUNT(*) FROM news WHERE title_ko IS NULL").fetchone()[0]
-    print(f"번역 대상 {total}건 (전체 미번역 {left}건)")
+    print(f"추천 카드 번역 대상 {total}건 · 기존 번역으로 채움 {synced}건 · "
+          f"원제가 한국어 {kept}건")
     if not total:
-        sync_cards(conn)
         conn.close()
         return
 
@@ -261,8 +254,12 @@ def main():
             # 저장하지 않고 NULL 로 둔다 → 다음 실행에서 다시 시도한다
             rejected[why] = rejected.get(why, 0) + 1
         else:
-            # 한 건마다 바로 저장 — 중간에 끊겨도 여기까지는 남는다
-            conn.execute("UPDATE news SET title_ko=? WHERE id=?", (ko, r["id"]))
+            # 한 건마다 바로 저장 — 중간에 끊겨도 여기까지는 남는다.
+            # news 에도 넣는다 — 채팅·검색이 한국어로 찾을 수 있게.
+            conn.execute("UPDATE article_analysis SET title_ko=? WHERE rowid=?",
+                         (ko, r["rowid"]))
+            conn.execute("UPDATE news SET title_ko=? WHERE url=? AND title_ko IS NULL",
+                         (ko, r["url"]))
             conn.commit()
             done += 1
 
@@ -272,9 +269,6 @@ def main():
             print(f"  [{i}/{total}] 저장 {done} · 버림 {sum(rejected.values())} "
                   f"· 건당 {per:.1f}초 · 남은 시간 약 {eta:.0f}분", flush=True)
 
-    synced = sync_cards(conn)
-    if synced:
-        print(f"추천 카드 제목 {synced}건 채움")
     conn.close()
     print(f"끝 — {done}건 저장 ({done / total * 100:.0f}%), "
           f"{sum(rejected.values())}건 버림, 총 {(time.time() - started) / 60:.1f}분")
